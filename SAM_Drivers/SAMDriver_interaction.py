@@ -1,5 +1,3 @@
-#!/usr/bin/python
-
 # """"""""""""""""""""""""""""""""""""""""""""""
 # The University of Sheffield
 # WYSIWYD Project
@@ -11,7 +9,6 @@
 # @authors: Uriel Martinez, Luke Boorman, Andreas Damianou
 #
 # """"""""""""""""""""""""""""""""""""""""""""""
-
 import sys
 import numpy
 import os
@@ -20,28 +17,36 @@ import readline
 import yarp
 from SAM.SAM_Core import SAMDriver
 from SAM.SAM_Core import SAMTesting
+import logging
 
-
-# """"""""""""""""
-# Class developed for the implementation of the face recognition task in real-time mode.
-# """"""""""""""""
-
+## @ingroup icubclient_SAM_Drivers
 class SAMDriver_interaction(SAMDriver):
-    # """"""""""""""""
-    # Initilization of the SAM class
-    # Inputs:
-    #    - isYarprunning: specifies if yarp is used (True) or not(False)
-    #    - imgH, imgW: original image width and height
-    #    - imgHNew imgWNew: width and height values to resize the image
-    #
-    # Outputs: None
-    # """"""""""""""""
+    """
+    Class developed for the implementation of face recognition.
+    """
     def __init__(self):
+        """
+        Initialise class using SAMDriver.__init__ and augment with custom parameters.
+
+        additionalParameterList is a list of extra parameters to preserve between training and interaction.
+        """
         SAMDriver.__init__(self)
         self.additionalParametersList = ['imgH', 'imgW', 'imgHNew', 'imgWNew',
                                          'image_suffix', 'pose_index', 'pose_selection']
 
     def loadParameters(self, parser, trainName):
+        """
+            Function to load parameters from the model config.ini file.
+
+            Method to load parameters from file loaded in parser from within section trainName and store these parameters in self.paramsDict.
+
+        Args:
+            parser: SafeConfigParser with pre-read config file.
+            trainName: Section from which parameters are to be read.
+
+        Returns:
+            None
+        """
         if parser.has_option(trainName, 'imgH'):
             self.paramsDict['imgH'] = int(parser.get(trainName, 'imgH'))
         else:
@@ -78,16 +83,29 @@ class SAMDriver_interaction(SAMDriver):
             self.paramsDict['pose_selection'] = 0
 
     def saveParameters(self):
+        """
+            Executes SAMDriver.saveParameters to save default parameters.
+        """
         SAMDriver.saveParameters(self)
 
 
     # """"""""""""""""
     def readData(self, root_data_dir, participant_index, *args, **kw):
+        """
+        Method which accepts a data directory, reads all the data in and outputs self.Y which is a numpy array with n instances of m length feature vectors and self.L which is a list of text Labels of length n.
 
+        This method reads .ppm images from disk, converts the images to grayscale and serialises the data into a feature vector.
+
+        Args:
+            root_data_dir: Data directory.
+            participant_index: List of subfolders to consider. Can be left as an empty list.
+
+        Returns:
+    """
         if not os.path.exists(root_data_dir):
-            print "CANNOT FIND:" + root_data_dir
+            logging.error("CANNOT FIND:" + root_data_dir)
         else:
-            print "PATH FOUND"
+            logging.info("PATH FOUND")
 
         # Find and build index of available images.......
         data_file_count = numpy.zeros([len(participant_index), len(self.paramsDict['pose_index'])])
@@ -128,9 +146,9 @@ class SAMDriver_interaction(SAMDriver):
                              self.paramsDict['pose_index'][0]][0][2]))[:, :, (2, 1, 0)]  # Convert BGR to RGB
 
         # Data size
-        print "Found minimum number of images:" + str(min_no_images)
-        print "Image count:", data_file_count
-        print "Found image with dimensions" + str(data_image.shape)
+        logging.info("Found minimum number of images:" + str(min_no_images))
+        logging.info("Image count:" + str(data_file_count))
+        logging.info("Found image with dimensions" + str(data_image.shape))
         #    imgplot = plt.imshow(data_image)#[:,:,(2,1,0)]) # convert BGR to RGB
 
         # Load all images....
@@ -162,12 +180,12 @@ class SAMDriver_interaction(SAMDriver):
                     data_image = cv2.imread(current_image_path)
                     # Check image is the same size if not... cut or reject
                     if data_image.shape[0] < set_x or data_image.shape[1] < set_y:
-                        print "Image too small... EXITING:"
-                        print "Found image with dimensions" + str(data_image.shape)
+                        logging.error("Image too small... EXITING:")
+                        logging.error("Found image with dimensions" + str(data_image.shape))
                         sys.exit(0)
                     if data_image.shape[0] > set_x or data_image.shape[1] > set_y:
-                        print "Found image with dimensions" + str(data_image.shape)
-                        print "Image too big cutting to: x=" + str(set_x) + " y=" + str(set_y)
+                        logging.warning("Found image with dimensions" + str(data_image.shape))
+                        logging.warning("Image too big cutting to: x=" + str(set_x) + " y=" + str(set_y))
                         data_image = data_image[:set_x, :set_y]
                     data_image = cv2.resize(data_image, (self.paramsDict['imgWNew'], self.paramsDict['imgHNew']))  # New
                     data_image = cv2.cvtColor(data_image, cv2.COLOR_BGR2GRAY)
@@ -181,10 +199,21 @@ class SAMDriver_interaction(SAMDriver):
         self.L = img_label_data
         return self.Y.shape[1]
 
-    def processLiveData(self, dataList, thisModel, verbose):
+    def processLiveData(self, dataList, thisModel, verbose, additionalData=dict()):
+        """
+            Method which receives a list of data frames and outputs a classification if available or 'no_classification' if it is not
 
-        print 'process live data'
-        print len(dataList)
+            Args:
+                dataList: List of dataFrames collected. Length of list is variable.
+                thisModel: List of models required for testing.
+                verbose : Boolean turning logging to stdout on or off.
+                additionalData : Dictionary containing additional data required for classification to occur.
+            Returns:
+               String with result of classification, likelihood of the classification, and list of frames with the latest x number of frames popped where x is the window length of the model. Classification result can be string `'None'` if the classification is unknown or message is invalid or `None` if a different error occurs.
+        """
+
+        logging.info('process live data')
+        logging.info(len(dataList))
 
         imgH = thisModel[0].paramsDict['imgH']
         imgW = thisModel[0].paramsDict['imgW']
@@ -204,19 +233,35 @@ class SAMDriver_interaction(SAMDriver):
         if numFaces > 0:
             # average all faces
             for i in range(numFaces):
+                logging.info('iterating' + str(i))
                 yarpImage.copy(dataList[i])
                 imageArrayOld = cv2.resize(imageArray, (imgHNew, imgWNew))
                 imageArrayGray = cv2.cvtColor(imageArrayOld, cv2.COLOR_BGR2GRAY)
                 instance = imageArrayGray.flatten()[None, :]
-                print instance.shape
-                print "Collected face: " + str(i)
+                logging.info(instance.shape)
+                logging.info("Collected face: " + str(i))
+                logging.info('testing enter')
                 [labels[i], likelihoods[i]] = SAMTesting.testSegment(thisModel, instance, verbose, None)
-
-            return SAMTesting.combineClassifications(thisModel, labels, likelihoods)
+                logging.info('testing leave')
+            logging.info('combine enter')
+            finalClassLabel, finalClassProb = SAMTesting.combineClassifications(thisModel, labels, likelihoods)
+            logging.info('combine ready')
+            logging.info('finalClassLabels ' + str(finalClassLabel))
+            logging.info('finalClassProbs ' + str(finalClassProb))
+            return finalClassLabel, finalClassProb, []
         else:
-            return [None, 0]
+            return [None, 0, None]
 
     def formatGeneratedData(self, instance):
+        """
+        Method to transform a generated instance from the model into a Yarp formatted output.
+
+        Args:
+            instance: Feature vector returned during generation of a label.
+
+        Returns:
+            Yarp formatted output for instance.
+        """
         # normalise image between 0 and 1
         yMin = instance.min()
         instance -= yMin

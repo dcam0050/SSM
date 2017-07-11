@@ -1,4 +1,4 @@
-#!/usr/bin/env ipython
+#!/usr/bin/env python
 # """"""""""""""""""""""""""""""""""""""""""""""
 # The University of Sheffield
 # WYSIWYD Project
@@ -11,6 +11,7 @@
 # @author: Daniel Camilleri
 #
 # """"""""""""""""""""""""""""""""""""""""""""""
+## \defgroup icubclient_SAM_source SAM
 import warnings
 import sys
 import numpy
@@ -18,12 +19,69 @@ import numpy as np
 from SAM.SAM_Core import SAMCore
 from SAM.SAM_Core import SAMTesting
 from SAM.SAM_Core.SAM_utils import initialiseModels
-np.set_printoptions(threshold=numpy.nan)
+import logging
+import os
+from os.path import join
+np.set_printoptions(threshold=numpy.nan, precision=2)
 warnings.simplefilter("ignore")
+
+## \ingroup icubclient_SAM_Core
+##\brief@{
+## Generic training function
+#\details@{
+## Generic training function that carries out SAM Model training on a collection of data, The parameters for training function are loaded from the config file present in the folder containing the data to be trained. An example of the configuration structure is shown in samOptimiser.modelOptClass
+
+
+def exception_hook(exc_type, exc_value, exc_traceback):
+    """Callback function to record any errors that occur in the log files.
+
+        Documentation:
+            Substitutes the standard python exception_hook with one that records the error into a log file. Can only work if trainSAMModel.py is called from python and not ipython because ipython overrides this substitution.
+
+        Args:
+            exc_type: Exception Type.
+            exc_value: Exception Value.
+            exc_traceback: Exception Traceback.
+
+        Returns:
+            None
+    """
+    logging.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+sys.excepthook = exception_hook
 
 dataPath = sys.argv[1]
 modelPath = sys.argv[2]
 driverName = sys.argv[3]
+windowedMode = sys.argv[6] == 'True'
+baseLogFileName = 'trainErrorLog_' + driverName
+
+file_i = 0
+loggerFName = join(dataPath, baseLogFileName + '_' + str(file_i) + '.log')
+
+# check if file exists
+while os.path.isfile(loggerFName) and os.path.getsize(loggerFName) > 0:
+    loggerFName = join(dataPath, baseLogFileName + '_' + str(file_i) + '.log')
+    file_i += 1
+
+if windowedMode:
+    logFormatter = logging.Formatter("[%(levelname)s]  %(message)s")
+else:
+    logFormatter = logging.Formatter("\033[34m%(asctime)s [%(name)-33s] [%(levelname)8s]  %(message)s\033[0m")
+
+rootLogger = logging.getLogger('train ' + driverName)
+rootLogger.setLevel(logging.DEBUG)
+
+fileHandler = logging.FileHandler(loggerFName)
+fileHandler.setFormatter(logFormatter)
+rootLogger.addHandler(fileHandler)
+
+consoleHandler = logging.StreamHandler()
+consoleHandler.setFormatter(logFormatter)
+rootLogger.addHandler(consoleHandler)
+logging.root = rootLogger
+
+logging.info(loggerFName)
 
 mm = initialiseModels(sys.argv[1:4], sys.argv[4])
 # mm[0].SAMObject.visualise()
@@ -33,14 +91,16 @@ if mm[0].calibrateUnknown or len(mm) > 1:
 
 overallPerformance = 100000
 if mm[0].model_mode != 'temporal':
-    overallPerformance = mm[0].testPerformance(mm, mm[0].Yall, mm[0].Lall, mm[0].YtestAll, mm[0].LtestAll, True)
+    overallPerformance, overallPerformanceLabels, labelComparisonDict = mm[0].testPerformance(mm, mm[0].Yall, mm[0].Lall, mm[0].YtestAll, mm[0].LtestAll, True)
 elif mm[0].model_mode == 'temporal':
-    overallPerformance = mm[0].testTemporalPerformance(mm, mm[0].Xall, mm[0].Yall, mm[0].Lall,
+    overallPerformance, overallPerformanceLabels, labelComparisonDict = mm[0].testTemporalPerformance(mm, mm[0].Xall, mm[0].Yall, mm[0].Lall,
                                                        mm[0].XtestAll, mm[0].YtestAll, mm[0].LtestAll, True)
 
 numParts = len(mm[0].participantList)
 for k in range(numParts):
     mm[k].paramsDict['overallPerformance'] = overallPerformance
+    mm[k].paramsDict['overallPerformanceLabels'] = overallPerformanceLabels
+    mm[k].paramsDict['labelComparisonDict'] = labelComparisonDict
     mm[k].paramsDict['ratioData'] = mm[0].ratioData
     mm[k].paramsDict['model_type'] = mm[k].model_type
     mm[k].paramsDict['model_mode'] = mm[0].model_mode
@@ -59,8 +119,8 @@ for k in range(numParts):
         mm[k].paramsDict['temporalModelWindowSize'] = mm[0].temporalModelWindowSize
 
     if mm[k].model_type == 'mrd' and mm[k].model_mode != 'temporal':
-        print mm[k].Y['L'].shape
-        print mm[k].Y['Y'].shape
+        logging.info(mm[k].Y['L'].shape)
+        logging.info(mm[k].Y['Y'].shape)
 
     if k == 0:
         mm[0].paramsDict['listOfModels'] = mm[0].listOfModels
@@ -92,11 +152,10 @@ for k in range(numParts):
     #     pass
         # fname = fnameProto
 
-    print
     # save model with custom .pickle dictionary by iterating through all nested models
-    print '-------------------'
-    print 'Saving: ' + mm[k].fname
+    logging.info('-------------------')
+    logging.info('Saving: ' + mm[k].fname)
     mm[k].saveParameters()
-    print 'Keys:'
-    print mm[k].paramsDict.keys()
+    logging.info('Keys:')
+    logging.info(mm[k].paramsDict.keys())
     SAMCore.save_pruned_model(mm[k].SAMObject, mm[k].fname, mm[0].economy_save, extraDict=mm[k].paramsDict)

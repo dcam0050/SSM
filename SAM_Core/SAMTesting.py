@@ -15,6 +15,8 @@ from sklearn.mixture import GMM
 from SAM.SAM_Core import SAM_utils as utils
 import ipyparallel as ipp
 import time
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import numpy.matlib
 import sys
@@ -25,14 +27,29 @@ import numpy as np
 from collections import Mapping, Container
 from sys import getsizeof
 from operator import gt
+import logging
 
-np.set_printoptions(threshold=np.nan)
+np.set_printoptions(threshold=np.nan, precision=2)
 
 
 # thisModel = None
-
+## \defgroup icubclient_SAM_Tests SAM Tests
+## @{
+## \ingroup icubclient_SAM_source
+##\brief@{
+## Collection of methods for testing and calibrating recall for SAM Models
 
 def deep_getsizeof(o, ids):
+    """
+    Method to calculate the size of an object `o` in bytes.
+
+    Args:
+        o: Object to calculate the size of.
+        ids: Set of ids to not consider when calculating the size of the object.
+
+    Returns:
+        Size of object in bytes.
+    """
     d = deep_getsizeof
     if id(o) in ids:
         return 0
@@ -52,7 +69,7 @@ def deep_getsizeof(o, ids):
     if 'SAM' in o.__class__.__name__:
         total = 0
         for attr, value in o.__dict__.iteritems():
-            # print attr
+            # logging.info(attr
             total += d(value, ids)
         return r + total
 
@@ -60,18 +77,42 @@ def deep_getsizeof(o, ids):
 
 
 def calibrateModelRecall(thisModel):
+    """
+    Logic to initialise calibration of model recall in order to recognize known from unknown instances.
+
+    Args:
+        thisModel: SAMObject model to calibrate.
+    Returns:
+        None
+    """
     if len(thisModel) > 1:
         calibrateMultipleModelRecall(thisModel)
     elif hasattr(thisModel[0], 'allDataDict'):
-        print 'calibrating model'
+        logging.info('calibrating model')
         calibrateSingleModelRecall(thisModel)
     else:
-        print 'no calibration'
+        logging.warning('no calibration')
 
 
 def calibrateSingleModelRecall(thisModel):
+    """
+    Perform calibration for single model implementations.
+
+    This method either uses the bhattacharyya distance to perform calibration of known and unknown or uses histograms to use the histogram distribution of known and unknown labels in the training data to carry out the classification. This method depends on the following parameters present in config.ini. \n
+
+    1) __useMaxDistance__ : `False` or `True`. This enables the use of bhattacharyya distance method to recognise known and unknown. \n
+    2) __calibrateUnknown__ : `True` or `False`. This turns on or off the calibration of the model for known and unknown inputs. \n
+    3) __noBins__ : Integer number of bins to be used for the histogram method if __calibrateUnknown__ is `True` and __useMaxDistance__ is `False`. \n
+    4) __method__ : String indicating the method used when histograms are used for calibration. When using histograms, the multi-dimensional probability of known and unknown are both calculated using the histogram. `sumProb` then performs a decision based on the largest sum after summing the probabilities of known and unknown independently. `mulProb` performs a decision based on the largest sum after multiplying the probabilities of known and unknown independently.\n
+
+    Args:
+        thisModel: SAMObject model to calibrate.
+
+    Returns:
+        None
+    """
     yCalib = formatDataFunc(thisModel[0].allDataDict['Y'])
-    print 'entering segment testing'
+    logging.info('entering segment testing')
     labelList, confMatrix, ret, variancesKnown, variancesUnknown = segmentTesting(thisModel, yCalib,
                                                                                   thisModel[0].allDataDict['L'],
                                                                                   thisModel[0].verbose, 'calib',
@@ -114,15 +155,15 @@ def calibrateSingleModelRecall(thisModel):
         thisModel[0].classificationDict['segIntersections'] = np.delete(intersection, delList)
         thisModel[0].classificationDict['bhattaDistances'] = distance
 
-        print 'Num Intersections: ', len(thisModel[0].classificationDict['segIntersections'])
+        logging.info('Num Intersections: ' + str(len(thisModel[0].classificationDict['segIntersections'])))
 
         [thisModel[0].classificationDict['varianceThreshold'],
          thisModel[0].classificationDict['varianceDirection']] = \
             calculateVarianceThreshold(thisModel[0].classificationDict['segIntersections'], mk[maxIdx], muk[maxIdx],
                                        vk[maxIdx], vuk[maxIdx])
 
-        print 'varianceThreshold', thisModel[0].classificationDict['varianceThreshold']
-        print 'varianceDirection', thisModel[0].classificationDict['varianceDirection']
+        logging.info('varianceThreshold ' + str(thisModel[0].classificationDict['varianceThreshold']))
+        logging.info('varianceDirection ' + str(thisModel[0].classificationDict['varianceDirection']))
     else:
         variancesKnownArray = np.asarray(variancesKnown)
         variancesUnknownArray = np.asarray(variancesUnknown)
@@ -154,6 +195,17 @@ def calibrateSingleModelRecall(thisModel):
 
 
 def calibrateMultipleModelRecall(thisModel):
+    """
+        Perform calibration for multiple model implementations.
+
+        In contrast with calibrateSingleModelRecall, in this method known and unknown are calibrated according to measures of familiarity between all model classes. The familiarity of each class with each other class and with itself are then used to perform a Bayesian decision depending on the resulting familiarity when testing a new instance.
+
+        Args:
+            SAMObject model to calibrate.
+
+        Returns:
+            None
+    """
     cmSize = len(thisModel[0].textLabels)
     confMatrix = np.zeros((cmSize, cmSize))
 
@@ -176,10 +228,10 @@ def calibrateMultipleModelRecall(thisModel):
         if thisModel[i].SAMObject.model:
             # N_test x N_labels matrix.
             familiarities[i - 1] = np.zeros((Y_valid[i - 1].shape[0], (len(thisModel) - 1)))
-            print("## True label is " + thisModel[i].modelLabel)
+            logging.info("## True label is " + thisModel[i].modelLabel)
             for k in range(Y_valid[i - 1].shape[0]):
                 sstest = []
-                print('# k=' + str(k))
+                logging.info('# k= ' + str(k))
                 for j in range(len(thisModel)):
                     if thisModel[j].SAMObject.model:
                         yy_test = Y_valid[i - 1][k, :][None, :].copy()
@@ -188,12 +240,13 @@ def calibrateMultipleModelRecall(thisModel):
                         yy_test /= thisModel[j].Ystd
                         sstest.append(thisModel[j].SAMObject.familiarity(yy_test, optimise=thisModel[0].optimiseRecall))
                         familiarities[i - 1][k, j - 1] = sstest[-1]
+                msg = ''
                 for j in range(len(sstest)):
                     if j == np.argmax(sstest):
-                        print '   *',
+                        msg = '   *'
                     else:
-                        print '    ',
-                    print('      Familiarity of model ' + thisModel[j + 1].modelLabel + ' given label: ' +
+                        msg = '    '
+                    logging.info(msg + '      Familiarity of model ' + thisModel[j + 1].modelLabel + ' given label: ' +
                           thisModel[i].modelLabel + ' in valid: ' + str(sstest[j]))
 
                 confMatrix[i - 1, np.argmax(sstest)] += 1
@@ -234,12 +287,21 @@ def calibrateMultipleModelRecall(thisModel):
         # model i is confident for this prediction.
         classif_thresh.append([tmp_i.mean() - tmp_s * tmp_i.std(), tmp_i.mean() + tmp_s * tmp_i.std()])
 
-    thisModel[0].classifiers = classifiers
-    thisModel[0].classif_thresh = classif_thresh
+    thisModel[0].classificationDict['classifiers'] = classifiers
+    thisModel[0].classificationDict['classif_thresh'] = classif_thresh
     thisModel[0].calibrated = True
 
 
 def formatDataFunc(Ydata):
+    """
+        Utility function to format data for testing.
+
+    Args:
+        Ydata: Data to format for testing.
+
+    Returns:
+        Formatted data for testing.
+    """
     yDataList = []
     for j in range(Ydata.shape[0]):
         yDataList.append(Ydata[j][None, :])
@@ -247,17 +309,35 @@ def formatDataFunc(Ydata):
 
 
 def singleRecall(thisModel, testInstance, verbose, visualiseInfo=None, optimise=100):
-    # Returns the predictive mean, the predictive variance and the axis (pp) of the latent space backwards mapping.
+
+    """
+        Method that performs classification for single model implementations.
+    
+        This method returns the classification label of a test instance by calculating the predictive mean and variance of the backwards mapping and subsequently decides whether the test instance is first known or unknown and if known its most probable classification label.
+        
+        Args:
+            thisModel: SAMObject model to recall from.
+            testInstance: Novel feature vector to test.
+            verbose: Enable or disable logging to stdout.
+            visualiseInfo: None to disable plotting and plotObject to display plot of recall.
+            optimise: Number of optimisation iterations to perform during recall.
+
+        Returns:
+            Classification label and variance if __calibrateUnknown__ is set to `False` in the config file. Otherwise returns classification label and normalised classification probability.
+    """
+    # 
     # mm,vv,pp=self.SAMObject.pattern_completion(testFace, visualiseInfo=visualiseInfo)
     # if verbose:
-    # print 'single model recall'
+    # logging.info('single model recall'
     textStringOut = ''
     # normalize incoming data
     testValue = testInstance - thisModel.Ymean
     testValue /= thisModel.Ystd
 
-    ret = thisModel.SAMObject.pattern_completion(testValue, visualiseInfo=visualiseInfo, optimise=optimise)
-
+    try:
+        ret = thisModel.SAMObject.pattern_completion(testValue, visualiseInfo=visualiseInfo, optimise=optimise)
+    except IndexError:
+        return ['unknown', 0]
     mm = ret[0]
     vv = list(ret[1][0])
     svv = sum(vv)
@@ -323,21 +403,37 @@ def singleRecall(thisModel, testInstance, verbose, visualiseInfo=None, optimise=
     if verbose:
         if thisModel.calibrated:
             if textStringOut == 'unknown':
-                print "With ", probClass, "prob. error the new instance is", runnerUp
-                print 'But', details, 'than', probClass, 'so class as', textStringOut
+                logging.info("With " + str(probClass) + " prob. error the new instance is " + str(runnerUp))
+                logging.info('But ' + str(details) + ' than ' + str(probClass) + ' so class as ' + str(textStringOut))
             else:
-                print "With ", probClass, "prob. error the new instance is", textStringOut
+                logging.info("With " + str(probClass) + " prob. error the new instance is " + str(textStringOut))
         else:
-            print "With", vv, "prob. error the new instance is", textStringOut
+            logging.info("With " + str(vv) + " prob. error the new instance is " + str(textStringOut))
 
-    return [textStringOut, vv]
+    if thisModel.calibrated:
+        return [textStringOut, probClass/len(vv)]
+    else:
+        return [textStringOut, vv]
 
 
 def multipleRecall_noCalib(thisModel, testInstance, verbose, visualiseInfo=None, optimise=True):
+    """
+    Method that performs classification for uncalibrated multiple model implementations.
+    
+    Args:
+        thisModel: SAMObject model to recall from.
+        testInstance: Novel feature vector to test.
+        verbose: Enable or disable logging to stdout.
+        visualiseInfo: None to disable plotting and plotObject to display plot of recall.
+        optimise: Number of optimisation iterations to perform during recall.
+
+    Returns:
+        Classification label and raw familiarity values.
+    """
     result = []
     if verbose:
         pass
-    # print 'multiple model recall'
+    # logging.info('multiple model recall'
 
     for j in thisModel:
         if j.SAMObject.model:
@@ -345,7 +441,7 @@ def multipleRecall_noCalib(thisModel, testInstance, verbose, visualiseInfo=None,
             tempTest /= j.Ystd
             yy_test = j.SAMObject.familiarity(tempTest, optimise=optimise)
             if verbose:
-                print('Familiarity with ' + j.modelLabel + ' given current instance is: ' + str(yy_test))
+                logging.info('Familiarity with ' + j.modelLabel + ' given current instance is: ' + str(yy_test))
             # yy_test -= thisModel[j].Ymean
             # yy_test /= thisModel[j].Ystd
             result.append(yy_test)
@@ -358,13 +454,26 @@ def multipleRecall_noCalib(thisModel, testInstance, verbose, visualiseInfo=None,
 
 
 def multipleRecall(thisModel, testInstance, verbose, visualiseInfo=None, optimise=100):
+    """
+    Method that performs classification for calibrated multiple model implementations.
+
+    Args:
+        thisModel: SAMObject model to recall from.
+        testInstance: Novel feature vector to test.
+        verbose: Enable or disable logging to stdout.
+        visualiseInfo: None to disable plotting and plotObject to display plot of recall.
+        optimise: Number of optimisation iterations to perform during recall.
+
+    Returns:
+        Classification label and calibrated familiarity values.
+    """
     cmSize = len(thisModel[0].textLabels)
     familiarities_tmp = []
     classif_tmp = []
 
     label = 'unknown'
 
-    if not thisModel[0].classifiers:
+    if not thisModel[0].classificationDict['classifiers']:
         calibrateMultipleModelRecall(thisModel)
 
     for j in range(cmSize):
@@ -373,21 +482,23 @@ def multipleRecall(thisModel, testInstance, verbose, visualiseInfo=None, optimis
         yy_test = thisModel[j + 1].SAMObject.familiarity(tempTest, optimise=optimise)[:, None]
         # yy_test *= thisModel[j+1].Ystd
         # yy_test += thisModel[j+1].Ymean
-        cc = thisModel[0].classifiers[j].predict_proba(yy_test)[:, j]
+        cc = thisModel[0].classificationDict['classifiers'][j].predict_proba(yy_test)[:, j]
         if verbose:
-            print('Familiarity with ' + thisModel[j + 1].modelLabel + ' given current instance is: ' + str(yy_test) +
-                  ' ' + str(cc[0]))
+            logging.info('Familiarity with ' + thisModel[j + 1].modelLabel + ' given current instance is: ' +
+                         str(yy_test) + ' ' + str(cc[0]))
         familiarities_tmp.append(yy_test)
         classif_tmp.append(cc)
 
     bestConfidence = np.argmax(classif_tmp)
 
     for j in range(cmSize):
-        if thisModel[0].classif_thresh[j][0] <= classif_tmp[j] <= thisModel[0].classif_thresh[j][1]:
+        if thisModel[0].classificationDict['classif_thresh'][j][0] <= \
+                classif_tmp[j] <= thisModel[0].classificationDict['classif_thresh'][j][1]:
             bestConfidence = j
             label = thisModel[0].textLabels[j]
 
-            # print 'min, classifier, max = ' + str(thisModel[0].classif_thresh[j][0]) + ' ' + str(classif_tmp[j]) + ' ' + \
+            # logging.info('min, classifier, max = ' + str(thisModel[0].classif_thresh[j][0]) + \
+            #       ' ' + str(classif_tmp[j]) + ' ' + \
             #       str(thisModel[0].classif_thresh[j][1])
 
     # if visualiseInfo:
@@ -396,35 +507,48 @@ def multipleRecall(thisModel, testInstance, verbose, visualiseInfo=None, optimis
     return [label, classif_tmp[bestConfidence][0]]
 
 
-def plot_confusion_matrix(cm, targetNames, title='Confusion matrix', cmap=plt.cm.inferno):
-    plt.figure()
-    plt.imshow(cm, interpolation='nearest', cmap=cmap)
-    plt.title(title)
-    plt.colorbar()
-    tick_marks = np.arange(len(targetNames))
-    plt.xticks(tick_marks, targetNames, rotation=45)
-    plt.yticks(tick_marks, targetNames)
-    plt.tight_layout()
-    plt.ylabel('True label')
-    plt.xlabel('Predicted label')
-
-
 def wait_watching_stdout(ar, dt=1, truncate=1000):
+    """
+    Monitoring function that logs to stdout the logging output of multiple threads.
+
+    Args:
+        ar: Thread to log.
+        dt: Integer delta time between readings of ar.stdout.
+        truncate: Integer limit on the number of lines returned by the threads.
+
+    Returns:
+        None
+    """
     while not ar.ready():
         stdouts = ar.stdout
         if any(stdouts):
             clear_output()
-            print '-' * 30
-            print "%.3fs elapsed" % ar.elapsed
-            print ""
+            logging.info('-' * 30)
+            logging.info("%.3fs elapsed" % ar.elapsed)
+            logging.info("")
             for stdout in ar.stdout:
                 if stdout:
-                    print "\n%s" % (stdout[-truncate:])
+                    logging.info("\n%s" % (stdout[-truncate:]))
             sys.stdout.flush()
         time.sleep(dt)
 
 
 def testSegment(thisModel, Ysample, verbose, visualiseInfo=None, optimise=100):
+    """
+    Utility function to test a sample.
+
+    This model determines the type of model being used for the testing and directs the query to the appropriate function.
+
+    Args:
+        thisModel: SAMObject model to recall from.
+        Ysample: Novel feature vector to test.
+        verbose: Enable or disable logging to stdout.
+        visualiseInfo: `None` to disable plotting and plotObject to display plot of recall.
+        optimise: Number of optimisation iterations to perform during recall.
+
+    Returns:
+        Classification result containing a list with the classification string and a measure of the familiarity or probability of the recall.
+    """
     if len(thisModel) > 1:
         d = multipleRecall(thisModel, Ysample, verbose, visualiseInfo, optimise=optimise)
     else:
@@ -433,6 +557,31 @@ def testSegment(thisModel, Ysample, verbose, visualiseInfo=None, optimise=100):
 
 
 def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, optimise=100, calibrate=False):
+    """
+    Method to test multiple samples at a time.
+
+    Args:
+        thisModel : SAMObject model to recall from.
+        Ysample : Novel feature vector to test.
+        Lnum : Ground truth labels to compare with.
+        verbose : Enable or disable logging to stdout.
+        label : Label for the current segments being tested.
+        serialMode : Boolean to test serially or in parallel.
+        optimise : Number of optimisation iterations to perform during recall.
+        calibrate : Indicate calibration mode when True which requires a different return.
+
+    Returns:
+        labelList, confMatrix, ret, variancesKnown, variancesUnknown if calibrate is `True`.
+        labelList, confMatrix, labelComparisonDict if calibrate is `False`.
+
+        labelList : List of classification labels
+        confMatrix : Numpy array with the confusion matrix
+        ret : Classification object
+        variancesKnown : Variances returned during calibration for known training instances
+        variancesUnknown : Variances returned during calibration for unknown training instances
+        labelComparisonDict : Dictionary with two items `'original'` and `'results'`.
+
+    """
     def testFunc(data, lab):
         d = testSegment(thisModel, data, verbose, visualiseInfo=None, optimise=optimise)
         if verbose:
@@ -440,11 +589,11 @@ def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, o
                 res = True
             else:
                 res = False
-            print 'Actual  ' + str(lab).ljust(11) + '  Classification:  ' + str(d[0]).ljust(11) + '  with ' + \
-                  str(d[1])[:6] + ' confidence: ' + str(res) + '\n'
+            logging.info('Actual  ' + str(lab).ljust(11) + '  Classification:  ' + str(d[0]).ljust(11) + '  with ' + \
+                  str(d[1])[:6] + ' confidence: ' + str(res) + '\n')
         return d
 
-    print
+    logging.info('')
 
     if type(Lnum).__module__ == np.__name__:
         useModelLabels = True
@@ -473,22 +622,22 @@ def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, o
     if numItems < 1500:
         serialMode = True
     c = None
-    print 'serialMode', serialMode
+    logging.info('serialMode: ' + str(serialMode))
     if not serialMode and thisModel[0].parallelOperation:
         try:
-            print 'Trying engines ...'
+            logging.info('Trying engines ...')
             c = ipp.Client()
             numWorkers = len(c._engines)
-            print 'Number of engines:', numWorkers
+            logging.info('Number of engines: ' + str(numWorkers))
         except:
-            print "Parallel workers not found"
+            logging.error("Parallel workers not found")
             thisModel[0].parallelOperation = False
             numWorkers = 1
     else:
-        print serialMode, '= True'
+        logging.info(str(serialMode) + '= True')
         thisModel[0].parallelOperation = False
         numWorkers = 1
-        print 'Number of engines:', numWorkers
+        logging.info('Number of engines: ' + str(numWorkers))
 
     # average 5 classifications before providing this time
     vTemp = copy.deepcopy(verbose)
@@ -504,29 +653,30 @@ def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, o
     t1 = time.time()
     verbose = vTemp
     thisModel[0].avgClassTime = (t1 - t0) / numTrials
-    print 'classification rate:', 1.0 / thisModel[0].avgClassTime, 'fps'
-    print 'estimated time: ' + str(thisModel[0].avgClassTime * numItems / (60*numWorkers)) + 'mins for ' + str(numItems) + ' items with ' + str(numWorkers) + 'workers' 
+    logging.info('classification rate: ' + str(1.0 / thisModel[0].avgClassTime) + 'fps')
+    logging.info('estimated time: ' + str(thisModel[0].avgClassTime * numItems / (60*numWorkers)) + 'mins for ' +
+                 str(numItems) + ' items with ' + str(numWorkers) + ' workers')
     t0 = time.time()
-    print t0
+    logging.info(t0)
     # check size of model
     # modelSize is size in megabytes
     modelSize = deep_getsizeof(thisModel, set()) / 1024.0 / 1024.0
-    print "modelSize: ", modelSize
-    print "required testing size: ", (modelSize * numWorkers * 2) + 400, " MB"
+    logging.info("modelSize: " + str(modelSize))
+    logging.warning("required testing size: " + str((modelSize * numWorkers * 2) + 400) + " MB")
     # check available system memory in megabytes
     freeSystemMem = float(psutil.virtual_memory()[4]) / 1024.0 / 1024.0
-    print "free memory:", freeSystemMem, " MB"
+    logging.info("free memory: " + str(freeSystemMem) + " MB")
 
     if modelSize > 100 or not thisModel[0].parallelOperation or serialMode:
         # serial testing
-        print 'Testing serially'
+        logging.warning('Testing serially')
         ret = []
         for j in range(len(Lsample)):
-            print j, '/', len(Lsample)
+            logging.info(str(j) + '/' + str(len(Lsample)))
             ret.append(testFunc(Ysample[j], Lsample[j]))
     else:
         # parallel testing
-        print 'Testing in parallel'
+        logging.info('Testing in parallel')
         dview = c[:]  # not load balanced
         lb = c.load_balanced_view()  # load balanced
 
@@ -544,8 +694,8 @@ def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, o
         # dview.clear()
         # dview.purge_results('all')
     t1 = time.time()
-    print t1
-    print 'Actual time taken =', t1-t0
+    logging.info(t1)
+    logging.info('Actual time taken = ' + str(t1-t0))
     if calibrate:
         variancesKnown = []
         variancesUnknown = []
@@ -557,8 +707,9 @@ def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, o
                     result = True
                 else:
                     result = False
-                print str(i).rjust(off3) + '/' + str(numItems) + ' Truth: ' + currLabel.ljust(off1) + ' Model: ' + ret[
-                    i][0].ljust(off1) + ' with ' + str(ret[i][1])[:6].ljust(off2) + ' confidence: ' + str(result)
+                logging.info(str(i).rjust(off3) + '/' + str(numItems) + ' Truth: ' + currLabel.ljust(off1) + ' Model: '
+                             + ret[i][0].ljust(off1) + ' with ' + str(ret[i][1])[:6].ljust(off2) +
+                             ' confidence: ' + str(result))
 
             if currLabel in thisModel[0].textLabels:
                 knownLabel = True
@@ -575,6 +726,9 @@ def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, o
 
         return labelList, confMatrix, ret, variancesKnown, variancesUnknown
     else:
+        labelComparisonDict = dict()
+        labelComparisonDict['original'] = []
+        labelComparisonDict['results'] = []
         for i in range(len(ret)):
             currLabel = Lsample[i]
             retLabel = ret[i][0]
@@ -587,24 +741,54 @@ def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, o
                     result = True
                 else:
                     result = False
-                print str(i).rjust(off3) + '/' + str(numItems) + ' Truth: ' + currLabel.ljust(off1) + ' Model: ' + \
-                      retLabel.ljust(off1) + ' with ' + str(ret[i][1])[:6].ljust(off2) + \
-                      ' confidence: ' + str(result)
+                logging.info(str(i).rjust(off3) + '/' + str(numItems) + ' Truth: ' + currLabel.ljust(off1) +
+                             ' Model: ' + retLabel.ljust(off1) + ' with ' + str(ret[i][1])[:6].ljust(off2) +
+                             ' confidence: ' + str(result))
 
+            labelComparisonDict['original'].append(Lsample[i])
+            labelComparisonDict['results'].append(retLabel)
             confMatrix[labelList.index(currLabel), labelList.index(retLabel)] += 1
-        return labelList, confMatrix
+        return labelList, confMatrix, labelComparisonDict
 
 
 def testSegments(thisModel, Ysample, Lnum, verbose, label, serialMode=False):
-    labelList, confMatrix = segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=serialMode,
-                                           optimise=thisModel[0].optimiseRecall, calibrate=False)
+    """
+    Function to test segments and return a confusion matrix.
+
+    Args:
+        thisModel : SAMObject model to recall from.
+        Ysample : Novel feature vector to test.
+        Lnum : Ground truth labels to compare with.
+        verbose : Enable or disable logging to stdout.
+        label : Label for the current segments being tested.
+        serialMode : Boolean to test serially or in parallel.
+
+    Returns:
+        Confusion matrix, confusion labels, list of possible labels and dictionary with results and comparison or truth and classification.
+    """
+    labelList, confMatrix, labelComparisonDict = segmentTesting(thisModel, Ysample, Lnum, verbose, label,
+                                                                serialMode=serialMode,
+                                                                optimise=thisModel[0].optimiseRecall, calibrate=False)
 
     dCalc = calculateData(labelList, confMatrix)
 
-    return [dCalc[0], dCalc[1]]
+    return [dCalc[0], dCalc[1], labelList, labelComparisonDict]
 
 
 def calculateVarianceThreshold(segIntersections, mk, muk, vk, vuk):
+    """
+    Method to decide on the approach to be used for setting variance thresholds and method of thresholding.
+
+    Args:
+        segIntersections : Number of gaussian intersections.
+        mk : Means of known.
+        muk : Means of unknown.
+        vk : Variances of known.
+        vuk : Variances of unknown.
+
+    Returns:
+        List of threshold variances and method of thresholding.
+    """
     thresh = None
     direction = None
     if len(segIntersections) == 0:
@@ -646,7 +830,18 @@ def calculateVarianceThreshold(segIntersections, mk, muk, vk, vuk):
 
 
 def calculateData(textLabels, confMatrix, numItems=None):
-    print confMatrix
+    """
+    Calculate the normalised confusion matrix.
+
+    Args:
+        textLabels: List of classifications.
+        confMatrix: Confusion matrix to normalise.
+        numItems: Total number of items tested.
+
+    Returns:
+        Normalised confusion matrix and overall percentage correct.
+    """
+    logging.info(confMatrix)
     if not numItems:
         numItems = np.sum(confMatrix)
 
@@ -659,26 +854,33 @@ def calculateData(textLabels, confMatrix, numItems=None):
         if total[l] != 0:
             normConf[l, :] = normConf[l, :].astype(np.float) * 100 / total[l].astype(np.float)
 
-    print normConf
-
-    # if plotting
-    # confMatLabels = copy.deepcopy(textLabels)
-    # plot_confusion_matrix(normConf, confMatLabels)
+    logging.info(normConf)
 
     # percCorect = 100 * np.diag(h.astype(np.float)).sum() / numItems
     percCorect = 100 * np.diag(normConf.astype(np.float)).sum() / np.sum(normConf)
 
-    print str(percCorect)[:5].ljust(7) + "% correct for training data"
-    print
+    logging.info(str(percCorect)[:5].ljust(7) + "% correct for training data")
+    logging.info('')
     for i in range(confMatrix.shape[0]):
         for j in range(confMatrix.shape[0]):
-            print str(normConf[i, j])[:5].ljust(7) + '% of ' + str(textLabels[i]) + \
-                  ' classified as ' + str(textLabels[j])
-        print
+            logging.info(str(normConf[i, j])[:5].ljust(7) + '% of ' + str(textLabels[i]) +
+                         ' classified as ' + str(textLabels[j]))
+        logging.info('')
     return [normConf, percCorect]
 
 
 def combineClassifications(thisModel, labels, likelihoods):
+    """
+    Combine multiple classifications into a single classification.
+
+    Args:
+        thisModel: SAMObject model.
+        labels: List of labels for classifications.
+        likelihoods: List of likelihoods.
+
+    Returns:
+        Label with the highest likelihood together with the normalised likelihood.
+    """
     # if len(thisModel) > 1:
     #     labelList = copy.deepcopy(thisModel[0].textLabels)
     #     labelList.append('unknown')
@@ -700,3 +902,5 @@ def combineClassifications(thisModel, labels, likelihoods):
     maxIdx = [j for j, k in enumerate(sumLikelihoods) if k == m][0]
 
     return [labelList[maxIdx], m / counts[maxIdx]]
+
+## @}

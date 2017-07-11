@@ -1,4 +1,4 @@
-#!/usr/bin/env ipython
+#!/usr/bin/env python
 # """"""""""""""""""""""""""""""""""""""""""""""
 # The University of Sheffield
 # WYSIWYD Project
@@ -21,6 +21,7 @@ import glob
 import shutil
 import copy
 from ConfigParser import SafeConfigParser
+np.set_printoptions(precision=2)
 
 optNotFound = False
 try:
@@ -30,10 +31,80 @@ except:
     optNotFound = True
     pass
 
-
+## @ingroup icubclient_SAM_Core
 class modelOptClass(object):
+    """
+        Class to perform optimisation of SAM Models.
+
+        This class reads in the parameters for optimisation from the `[Optimisation]` section found in the config.ini present in the data directory passed in as dataDir. Parameters are set for variables that are present in the `[driver_name]` section of the same config.ini in the following manner `variableName = [parameterType:commaSeparatedParameterValues]`.\n
+
+        Parameters can be : \n
+        1) __discreteInt__ : Equally spaced integers in the form of `x = [discreteInt:start,interval,end]`. \n
+        2) __discreteFloat__ : Equally spaced floats in the form of `x = [discreteFloat:start,interval,end]`. \n
+        3) __continuous__ : Continuous range in the form of `x = [continuous:start,end]`. \n
+        4) __list__ : Use one parameter value at a time from the comma separated list of possible parameter values in the form of `x = [list:a,b,c,d]` where x is set to just one of the values in the list. \n
+        5) __bool__ : In the form of `x = [bool]` where x = 1 or 0. Similar to `x = [list:1,0]`. \n
+        6) __combination__ : Use multiple parameters at a time from the comma separated list of possible parameters values in the form of `x = [combination:a,b,c,d]` where x is set to a combination of parameters. Length of the values list in x ranges from 1 to number of comma separated parameter values. \n
+
+        Examples:
+            Example config.ini
+
+            [model_options]
+            driver = driverName # driver present in SAM_Drivers folder
+            modelNameBase = modelName # user set model name
+
+            [modelName]
+            # default parameters for the training section which must always be present.
+            update_mode = `new` # `new` or `false`. `New` fill train a new model with the following parameters and delete the old one. `False` will check for the availbility of an already trained model and if one is available load it together with its parameters ignoring the rest of this file.
+            experiment_number = 0 # experiment number in case different models are required to be compared
+            model_type = mrd # model type can be `mrd` or `bgplvm`
+            model_mode = single # model_mode can be `single` or `multiple`
+            model_num_inducing = 170 # any integer number. Generally < 200 for performance considerations
+            model_num_iterations = 50 # any integer number. High numbers mean increased training time
+            model_init_iterations = 450 # any integer number. High numbers mean increased training time
+            verbose = True # `True` or `False` will turn logging to stdout on or off. Logging to file is always on.
+            Quser = 10 # Number of target dimensions for the output latent space. Higher numbers mean a more detailed latent space but very sparse clusters. Higher dimensionality also requires more input data for good generalisation.
+            ratioData = 80 # Train/Test split. 80% train, 20% test
+            kernelString = "GPy.kern.RBF(Q, ARD=False) + GPy.kern.Bias(Q) + GPy.kern.White(Q)" # This is the kernel used by the Gaussian Process. Keep this constant. Future releases will make this a changeable parameter
+            optimiseRecall = 0 # This parameter sets the number of optimisations that occur during recall. If 0 no optimisations are made and recall becames similair to nearest neighbour analysis.
+            calibrateUnknown = True # This parameter triggers the learning of known/unknown classification.
+            # start of unique model parameters. These parameters are usually parameters to modify and alter the signal processing that occurs in user defined readData function. The following are examples.
+            thresholdMovement = 1
+            components = pos,vel
+            joints = head
+            windowOffsetPercent = 12.5
+            thresholdPercent = 22
+            moveThresh = 0.01
+
+            [Optimisation]
+            # default parameters for the optimisation section which must always be present.
+            acquisitionFunction = 'EI' # Can be either 'MPI' : maximum probability of improvement, 'EI'  : Expected Improvement or 'UCB' : Upper class bound
+            # custom optimisation parameters which must be a subset of the default and custom parameters in the previous section
+            model_num_inducing = [discreteInt:20,50,220]
+            thresholdMovement = [bool]
+            components = [combination:pos,vel,acc]
+            joints = [list:head,chest,right hand,left hand,right arm,left arm]
+            windowOffsetPercent = [discreteFloat:10.0,1.5,22.5]
+            thresholdPercent = [continuous:13.5,]
+    """
     def __init__(self, fName, dataDir, modelDir, driverName, mode, baseName, persistence, windowed, verbose):
-        # check package is present
+        """
+        Initialisation for modelOptClass
+
+        Args:
+            fName: File name of the model to use as a starting point for the optimisation
+            dataDir: Directory containing the data to be trained
+            modelDir: Directory where to save optimised model and temporary models created during optimisation
+            driverName: Name of driver to use for training which must be present in SAM_Drivers folder
+            mode: This is a legacy parameter that changed the behaviour of saving models. This parameter is not in use anymore.
+            baseName: Base name of model to be trained. Model filenames take the form of __baseName_driverName_modelType_modelVersion.pickle__ with a corresponding __baseName_driverName_modelType_modelVersion_model.h5__. modelVersion can be `best`, `exp<experiment number>`, or `backup`.
+            persistence	: `'True'` or `'False'` indicating terminals opened by samOptimiser stay open even after process termination
+            windowed 	: `'True'` or `'False'` indicating separate terminals will be opened by samOptimiser for each training and interaction process
+            verbose		: `'True'` or `'False'` switching on or off logging to stdout
+
+        Returns:
+            None
+        """
         try:
             import GPyOpt
             self.fName = fName
@@ -70,6 +141,14 @@ class modelOptClass(object):
             self.configured = [False, msg]
 
     def configOptimisation(self):
+        """
+            Configure optimisation parameters from config.ini
+
+            Reads in config.ini parameters and sets up the optimisation landscape from these parameters. Also reads in the performance of a current model if one is available to set that as the performance to beat.
+
+            Returns:
+                None
+        """
         self.parser = SafeConfigParser()
         self.parser.optionxform = str
         try:
@@ -210,6 +289,17 @@ class modelOptClass(object):
             return [False, 'Initialising parameters failed']
 
     def f(self, x):
+        """
+        Optimisation Evaluation Function
+
+        This function evaluates the current values chosen by the optimiser in `x` by writing these parameter values to the respective parameters in the training parameters section of the config.ini and subsequently making a system call to trainSAMModel.
+
+        Args:
+            x : List of current evaluation parameters chosen by the optimiser.
+
+        Returns:
+             Total error for the current training parameters. Error is the weighted sum total of the confusion matrix created during testing of the model as part of training.
+        """
         self.numEvals += 1
         print 'Trial ', self.numEvals, 'out of', self.numPossibilities, 'possibilities'
         for j in range(len(x[0])):
@@ -295,7 +385,13 @@ class modelOptClass(object):
                     testConf = modelPickle['overallPerformance']
                     print 'Confusion Matrix: ', testConf
                     np.fill_diagonal(testConf, 0)
-                    currError += np.sum(testConf)
+                    # introduce a factor to give favour to specific classifications
+                    factorMat = np.ones(testConf.shape)
+                    factorMat[:-1, -1] = 0.5
+                    print 'factorMat', factorMat
+                    print 'testConf', testConf
+                    print 'modified', testConf*factorMat
+                    currError += np.sum(testConf*factorMat)
                     print
                     print 'Current cumulative error: ', currError
                     if currError < self.bestError:
@@ -317,6 +413,16 @@ class modelOptClass(object):
         return currError
 
     def copyModel(self, newName, direction):
+        """
+        Utility function to copy model.
+
+        Args:
+            newName: Model base name to copy.
+            direction: `normal` or `reverse`. `normal` makes a copy of the model with `exp<experiment number>` in the filename to `backup` in the filename. `reverse` makes a copy of `backup` into `exp<experiment number>`.
+
+        Returns:
+            True of False indicating success.
+        """
         if os.path.isfile(self.modelDir):
             print self.modelDir, ' model file present'
             self.currFiles = [j for j in glob.glob('__'.join(self.modelDir.split('__')[:3]) + '*')
@@ -351,6 +457,17 @@ class modelOptClass(object):
 
 
 def deleteModel(modelDir, newName):
+    """
+    Utility function to delete models.
+
+    Args:
+        modelDir : Directory containing the model to delete.
+        newName : Subset of model files to delete. Either `best`, `backup` or `exp`.
+
+    Returns:
+        None
+
+    """
     if os.path.isfile(modelDir):
         print modelDir, ' model file present'
         fileList = [j for j in glob.glob('__'.join(modelDir.split('__')[:3]) + '*') if newName in j]
@@ -359,6 +476,14 @@ def deleteModel(modelDir, newName):
 
 
 def main():
+    """
+        Sets up the modelOptClass and calls GPyOpt optimisation for 200 iterations.
+
+        Same arguments as modelOptClass.init().
+
+        Returns:
+            0 if completed successfully. -1 if completed unsuccessfully.
+    """
     # Initialisation parameters:
     print optNotFound,  ' ', len(sys.argv)
     if len(sys.argv) >= 9 and not optNotFound:
@@ -386,21 +511,21 @@ def main():
             # pickle.dump({'optModel', optModel}, output)
             # output.close()
 
-            # try:
-            myBopt.run_optimization(max_iter)
-            optModel.parser.write(open(optModel.dataDir + "/config.ini", 'wb'))
-            optModel.copyModel('best', 'reverse')
-            return 0
-            # except:
-            #     # pickle results list together with optimiser
-            #     d = pickle.load(open(logFilename, 'r'))
-            #     d['resultList'] = myBopt.resultsList
-            #     output = open(logFilename, 'wb')
-            #     pickle.dump(d, output)
-            #     output.close()
-            #     optModel.parser.write(open(optModel.dataDir + "/config.ini", 'wb'))
-            #     optModel.copyModel('best', 'reverse')
-            #     return -1
+            try:
+                myBopt.run_optimization(max_iter)
+                optModel.parser.write(open(optModel.dataDir + "/config.ini", 'wb'))
+                optModel.copyModel('best', 'reverse')
+                return 0
+            except:
+                # # pickle results list together with optimiser
+                # d = pickle.load(open(logFilename, 'r'))
+                # d['resultList'] = myBopt.resultsList
+                # output = open(logFilename, 'wb')
+                # pickle.dump(d, output)
+                # output.close()
+                os.system("mv " + optModel.dataDir+"/configBest.ini " + optModel.dataDir+"/config.ini")
+                # optModel.parser.write(open(optModel.dataDir + "/config.ini", 'wb'))
+                return -1
         else:
             return -1
     else:
