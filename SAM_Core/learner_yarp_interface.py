@@ -139,18 +139,12 @@ class Learner(yarp.RFModule):
         self.data['parameters']['edge_render_method'] = 'gl'
 
         self.data['stat_node_spacing'] = 2
-        self.data['stat_nodes'] = np.arange(0, npts, 1)
         self.data['pos'] = np.empty((npts, dimensions), dtype='float32')
         self.data['node_color'] = np.empty((npts, 3), dtype='float32')
         self.data['pos'] = np.random.normal(size=self.data['pos'].shape, scale=4.)
 
         cmap = color.get_colormap('cubehelix')
         self.data['node_color'][:] = np.array([cmap.map(x)[0, :3] for x in np.linspace(0.2, 0.8, npts)])
-
-        # initialise position of static nodes in a line
-        self.data['pos'][self.data['stat_nodes'], 1:] = 0
-        self.data['pos'][self.data['stat_nodes'], 0] = \
-            np.arange(0, len(self.data['stat_nodes']) * self.data['stat_node_spacing'], self.data['stat_node_spacing'])
 
         self.data['edges'] = np.array([(0, 0)])
         self.data['edge_color'] = np.ones((self.data['pos'].shape[0], 4))
@@ -328,8 +322,10 @@ class Learner(yarp.RFModule):
                     self.t += 1
                     logging.info(self.cmd.toString() + " reply: " + self.rep.toString())
                     time.sleep(self.pauseVal)
+                else:
+                    time.sleep(self.pauseVal)
             else:
-                time.sleep(0.05)
+                time.sleep(self.pauseVal)
         else:
             self.wait_connection()
         return True
