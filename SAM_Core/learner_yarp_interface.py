@@ -4,7 +4,7 @@ import sys
 import time
 from SAM.SAM_Core.SAM_utils import timeout
 import warnings
-from os.path import join
+from os.path import join, isfile
 import os
 import numpy as np
 import yarp
@@ -12,6 +12,7 @@ import pickle
 import argparse
 import csv
 import logging
+from vispy import color
 from neurolearning import nlearn
 warnings.simplefilter("ignore")
 np.set_printoptions(precision=2)
@@ -27,7 +28,7 @@ class node_info():
 class Learner(yarp.RFModule):
     """Memory visualisation function
     """
-    def __init__(self):
+    def __init__(self, sysargs, additional_loggers=None):
         """
         Initialisation of the interaction function
         """
@@ -56,17 +57,7 @@ class Learner(yarp.RFModule):
         self.edge_data = dict()
         self.data = dict()
         self.prev_data = None
-
-    def configure(self, rf):
-        """
-         Configure interactionSAMModel yarp module
-
-        Args:
-            rf: Yarp RF context input
-
-        Returns:
-            Boolean indicating success or no success in initialising the yarp module
-        """
+        self.args = sysargs
 
         file_i = 0
         logger_f_name = join(os.curdir, 'learner_' + str(file_i) + '.log')
@@ -88,34 +79,55 @@ class Learner(yarp.RFModule):
         file_handler.setFormatter(log_formatter)
         root_logger.addHandler(file_handler)
 
-        # console_handler = logging.StreamHandler()
-        # console_handler.setFormatter(log_formatter)
-        # root_logger.addHandler(console_handler)
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(log_formatter)
+        root_logger.addHandler(console_handler)
+
+        if additional_loggers is not None:
+            for j in additional_loggers:
+                root_logger.addHandler(j)
+
         logging.root = root_logger
+        logging.debug("Test logging")
+
+    def configure(self, rf):
+        """
+         Configure interactionSAMModel yarp module
+
+        Args:
+            rf: Yarp RF context input
+
+        Returns:
+            Boolean indicating success or no success in initialising the yarp module
+        """
 
         self.ports_list.append(yarp.Port())
         self.ports_list[self.sv_port].open(self.sv_port_name)
         self.attach(self.ports_list[self.sv_port])
 
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--num_inputs", type=int)
-        parser.add_argument("--num_outputs", type=int)
-        parser.add_argument("--dimensions", type=int)
-        parser.add_argument("--datafile")
-        args = parser.parse_args()
-
-        if args.datafile:
-            # load data from file
-            with open(args.datafile, "rb") as f:
+        if self.args.datafile and isfile(self.args.datafile):
+            with open(self.args.datafile, "rb") as f:
                 reader = csv.reader(f)
                 interface = reader.next()
                 self.read_data = np.array([row for row in reader])
             self.data['stat_nodes_names'] = interface
             npts = len(interface)
         else:
-            npts = args.num_inputs + args.num_outputs
+            npts = self.args.num_inputs + self.args.num_outputs
+            self.read_data = None
+            self.data['stat_nodes_names'] = []
+            possible_letters = list(map(chr, range(97, 123)))
+            mults = npts // len(possible_letters)
+            rem = npts % len(possible_letters)
+            for j in range(mults):
+                if j == 0:
+                    self.data['stat_nodes_names'] += possible_letters
+                else:
+                    self.data['stat_nodes_names'] += [possible_letters[j-1]+k for k in possible_letters]
 
-        dimensions = args.dimensions if args.dimensions else 3
+            self.data['stat_nodes_names'] += [possible_letters[mults-1] + k for k in possible_letters[:rem]]
+
+        dimensions = self.args.dimensions if self.args.dimensions else 3
 
         self.data['parameters'] = dict()
         self.data['parameters']['nodeSize'] = 30
@@ -131,10 +143,9 @@ class Learner(yarp.RFModule):
         self.data['pos'] = np.empty((npts, dimensions), dtype='float32')
         self.data['node_color'] = np.empty((npts, 3), dtype='float32')
         self.data['pos'] = np.random.normal(size=self.data['pos'].shape, scale=4.)
-        self.data['node_color'][:] = np.array([(1, 0, 0),
-                                              (1, 1, 0),
-                                              (1, 0, 1),
-                                              (0, 1, 1)])
+
+        cmap = color.get_colormap('cubehelix')
+        self.data['node_color'][:] = np.array([cmap.map(x)[0, :3] for x in np.linspace(0.2, 0.8, npts)])
 
         # initialise position of static nodes in a line
         self.data['pos'][self.data['stat_nodes'], 1:] = 0
@@ -143,14 +154,11 @@ class Learner(yarp.RFModule):
 
         self.data['edges'] = np.array([(0, 0)])
         self.data['edge_color'] = np.ones((self.data['pos'].shape[0], 4))
+
         for i, j in enumerate(self.data['stat_nodes_names']):
             self.node_data[str(i)] = node_info(name=j)
         for k in self.node_data.keys():
             print "node", k, ":", self.node_data[k].name, self.node_data[k].values, self.node_data[k].edges_list
-
-        # for t in range(self.read_data.shape[0]):
-        #     currData = self.read_data[t, :]
-        #     new_nodes, new_edges = self.neurolearn(currData)
 
         self.wait_connection()
 
@@ -300,25 +308,26 @@ class Learner(yarp.RFModule):
         """
 
         if self.ports_list[self.sv_port].getOutputCount() > 0:
-            if not self.pause and self.init_complete and self.t < self.read_data.shape[0]:
-                currData = self.read_data[self.t, :]
-                new_nodes, new_edges = self.neurolearn(currData)
-                for nn in new_nodes:
-                    self.cmd.clear()
-                    self.rep.clear()
-                    self.cmd.addString("add_node")
-                    self.cmd.addInt(nn)
-                    self.ports_list[self.sv_port].write(self.cmd, self.rep)
-                for ne in new_edges:
-                    self.cmd.clear()
-                    self.rep.clear()
-                    self.cmd.addString("add_edge")
-                    self.cmd.addInt(ne[0])
-                    self.cmd.addInt(ne[1])
-                    self.ports_list[self.sv_port].write(self.cmd, self.rep)
-                self.t += 1
-                logging.info(self.cmd.toString() + " reply: " + self.rep.toString())
-                time.sleep(self.pauseVal)
+            if self.read_data is not None:
+                if not self.pause and self.init_complete and self.t < self.read_data.shape[0]:
+                    currData = self.read_data[self.t, :]
+                    new_nodes, new_edges = self.neurolearn(currData)
+                    for nn in new_nodes:
+                        self.cmd.clear()
+                        self.rep.clear()
+                        self.cmd.addString("add_node")
+                        self.cmd.addInt(nn)
+                        self.ports_list[self.sv_port].write(self.cmd, self.rep)
+                    for ne in new_edges:
+                        self.cmd.clear()
+                        self.rep.clear()
+                        self.cmd.addString("add_edge")
+                        self.cmd.addInt(ne[0])
+                        self.cmd.addInt(ne[1])
+                        self.ports_list[self.sv_port].write(self.cmd, self.rep)
+                    self.t += 1
+                    logging.info(self.cmd.toString() + " reply: " + self.rep.toString())
+                    time.sleep(self.pauseVal)
             else:
                 time.sleep(0.05)
         else:
@@ -387,7 +396,15 @@ sys.excepthook = exception_hook
 
 if __name__ == '__main__':
     yarp.Network.init()
-    mod = Learner()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num_inputs", type=int)
+    parser.add_argument("--num_outputs", type=int)
+    parser.add_argument("--dimensions", type=int)
+    parser.add_argument("--datafile")
+    parsearg = parser.parse_args()
+
+    mod = Learner(parsearg)
     rf = yarp.ResourceFinder()
     rf.setVerbose(True)
     rf.configure(sys.argv)
