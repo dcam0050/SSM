@@ -4,31 +4,37 @@ import sys
 import time
 from SAM.SAM_Core.SAM_utils import timeout
 import warnings
-from os.path import join, isfile
+from os.path import join
 import os
 import numpy as np
 import yarp
 import pickle
-import argparse
-import csv
 import logging
-from vispy import color
+import thread
 from neurolearning import nlearn
 warnings.simplefilter("ignore")
 np.set_printoptions(precision=2)
 
 
 class node_info():
-    def __init__(self, name=None, values=[], edges_list=[]):
+    def __init__(self, name=None, values=[], edges_list=[], type=''):
         self.name = name
         self.values = values
         self.edges_list = edges_list
+        self.type = type
+        # type == '' -> learned
+        # type == 'in' -> input
+        # type == 'out' -> output
+
+    def print_node(self):
+        return str(self.name) + ' ' + str(self.values) + ' ' + str(self.edges_list) + ' ' + str(self.type)
 
 
 class Learner(yarp.RFModule):
     """Memory visualisation function
     """
-    def __init__(self, sysargs, additional_loggers=None):
+    # def __init__(self, sysargs, additional_loggers=None):
+    def __init__(self, additional_loggers=None):
         """
         Initialisation of the interaction function
         """
@@ -39,25 +45,23 @@ class Learner(yarp.RFModule):
         self.pause = False
         self.windowed_mode = True
         self.sv_port_name = "/SAM/learner/rpc"
-        self.vis_port_name = "/SAM/visualiser/rpc"
         self.t = 0
-        # self.stat_nodes = None
-        # self.edge_color = None
-        # self.edges = None
-        # self.stat_node_spacing = None
-        # self.pos = None
-        # self.node_color = None
-        # self.parameters = dict()
         self.cmd = yarp.Bottle()
         self.rep = yarp.Bottle()
-        self.read_data = None
-        self.init_complete = False
-        self.pauseVal = 0.5
+        self.received_data = None
+        self.connected_to_visualiser = False
+        self.pauseVal = 0.1
         self.node_data = dict()
-        self.edge_data = dict()
-        self.data = dict()
+        self.edge_data = []
         self.prev_data = None
-        self.args = sysargs
+        self.learner_initialised = False
+        self.processing_underway = False
+        # self.args = sysargs
+        self.my_mutex = thread.allocate_lock()
+        self.vis_graph_parameters = dict()
+        self.vis_graph_parameters['num_inputs'] = 0
+        self.vis_graph_parameters['num_outputs'] = 0
+        self.transmit_output = False
 
         file_i = 0
         logger_f_name = join(os.curdir, 'learner_' + str(file_i) + '.log')
@@ -89,6 +93,7 @@ class Learner(yarp.RFModule):
 
         logging.root = root_logger
         logging.debug("Test logging")
+        self.received_data = None
 
     def configure(self, rf):
         """
@@ -105,92 +110,7 @@ class Learner(yarp.RFModule):
         self.ports_list[self.sv_port].open(self.sv_port_name)
         self.attach(self.ports_list[self.sv_port])
 
-        if self.args.datafile and isfile(self.args.datafile):
-            with open(self.args.datafile, "rb") as f:
-                reader = csv.reader(f)
-                interface = reader.next()
-                self.read_data = np.array([row for row in reader])
-            self.data['stat_nodes_names'] = interface
-            npts = len(interface)
-        else:
-            npts = self.args.num_inputs + self.args.num_outputs
-            self.read_data = None
-            self.data['stat_nodes_names'] = []
-            possible_letters = list(map(chr, range(97, 123)))
-            mults = npts // len(possible_letters)
-            rem = npts % len(possible_letters)
-            for j in range(mults):
-                if j == 0:
-                    self.data['stat_nodes_names'] += possible_letters
-                else:
-                    self.data['stat_nodes_names'] += [possible_letters[j-1]+k for k in possible_letters]
-
-            self.data['stat_nodes_names'] += [possible_letters[mults-1] + k for k in possible_letters[:rem]]
-
-        dimensions = self.args.dimensions if self.args.dimensions else 3
-
-        self.data['parameters'] = dict()
-        self.data['parameters']['nodeSize'] = 30
-        self.data['parameters']['scaling'] = False
-        self.data['parameters']['stat_spacing'] = 1
-        self.data['parameters']['symbol'] = 'o'
-        self.data['parameters']['antialias'] = True
-        self.data['parameters']['edge_width'] = 1
-        self.data['parameters']['edge_render_method'] = 'gl'
-
-        self.data['stat_node_spacing'] = 2
-        self.data['pos'] = np.empty((npts, dimensions), dtype='float32')
-        self.data['node_color'] = np.empty((npts, 3), dtype='float32')
-        self.data['pos'] = np.random.normal(size=self.data['pos'].shape, scale=4.)
-
-        cmap = color.get_colormap('cubehelix')
-        self.data['node_color'][:] = np.array([cmap.map(x)[0, :3] for x in np.linspace(0.2, 0.8, npts)])
-
-        self.data['edges'] = np.array([(0, 0)])
-        self.data['edge_color'] = np.ones((self.data['pos'].shape[0], 4))
-
-        for i, j in enumerate(self.data['stat_nodes_names']):
-            self.node_data[str(i)] = node_info(name=j)
-        for k in self.node_data.keys():
-            print "node", k, ":", self.node_data[k].name, self.node_data[k].values, self.node_data[k].edges_list
-
-        self.wait_connection()
-
         return True
-
-    def wait_connection(self):
-        not_connected = True
-        while not_connected:
-            yarp.Network.connect(self.sv_port_name, self.vis_port_name)
-            logging.info("Waiting for connection with visualiser at " + self.vis_port_name)
-            time.sleep(1)
-            if self.ports_list[self.sv_port].getOutputCount() != 0:
-                not_connected = False
-
-        self.cmd.clear()
-        self.rep.clear()
-        parameter_json = pickle.dumps(self.data)
-
-        self.cmd.addString("check_graph_start")
-        self.ports_list[self.sv_port].write(self.cmd, self.rep)
-        if self.rep.toString() == "nack":
-            self.cmd.clear()
-            self.cmd.addString("init_graph_parameters")
-            self.cmd.addString(parameter_json)
-            self.ports_list[self.sv_port].write(self.cmd, self.rep)
-            logging.info(self.cmd.toString() + " reply: " + self.rep.toString())
-
-            self.init_complete = False
-            while not self.init_complete:
-                self.cmd.clear()
-                self.cmd.addString("check_graph_start")
-                self.ports_list[self.sv_port].write(self.cmd, self.rep)
-                logging.info(self.cmd.toString() + " reply: " + self.rep.toString())
-                time.sleep(0.5)
-                if self.rep.get(0).asString() == 'ack':
-                    self.init_complete = True
-        else:
-            self.init_complete = True
 
     def close(self):
         """
@@ -259,6 +179,33 @@ class Learner(yarp.RFModule):
             else:
                 self.pause = True
         # -------------------------------------------------
+        elif action == "init_in_out":
+            # command[1] int num inputs
+            # command[2] int num outputs
+            # command[3] list input names
+            # command[4] list output names
+            try:
+                logging.info(command.toString())
+                num_inputs = int(command.get(1).asString())
+                num_outputs = int(command.get(2).asString())
+                input_names = command.get(3).asString()[1:-1].replace("'", '').split(', ')
+                output_names = command.get(4).asString()[1:-1].replace("'", '').split(', ')
+                self.init_in_out(num_inputs, num_outputs, input_names, output_names)
+                reply.addString("ack")
+            except Exception as e:
+                logging.warning(str(e))
+                reply.addString("nack")
+                reply.addString(str(e))
+                reply.addString(
+                    "E.g 'init_in_out <num_inputs> <num_outputs> <list_input_names> <list_output_names>'")
+        # -------------------------------------------------
+        elif action == "process_data":
+            if command.size() < 2:
+                reply.addString("nack")
+                reply.addString("data not included with command")
+            else:
+                self.process_data(command, reply)
+        # -------------------------------------------------
         elif action == "get_node_data":
             if command.size() < 2:
                 reply.addString("nack")
@@ -268,10 +215,104 @@ class Learner(yarp.RFModule):
                 reply.addString(curr_node.name)
                 reply.addString(str(curr_node.values))
                 reply.addString(str(curr_node.edges_list))
+        # -------------------------------------------------
+        elif action == "trigger_graph_init":
+            self.trigger_graph_init(command, reply)
         else:
             reply.addString("nack")
 
         return True
+
+    def trigger_graph_init(self, command, reply):
+        if self.learner_initialised:
+            logging.info("learner initialised")
+            self.cmd.clear()
+            self.rep.clear()
+            self.vis_graph_parameters['npts'] = len(self.node_data.keys())
+            self.vis_graph_parameters['edges'] = self.edge_data
+            graph_pickle = pickle.dumps(self.vis_graph_parameters)
+            self.cmd.addString("init_graph")
+            self.cmd.addString(graph_pickle)
+            self.ports_list[self.sv_port].write(self.cmd, self.rep)
+            logging.info(self.cmd.toString() + " reply: " + self.rep.toString())
+            if self.rep.toString() == "ack":
+                reply.addString("ack")
+                self.connected_to_visualiser = True
+            else:
+                reply.addString("nack")
+        else:
+            logging.info("learner not yet initialised")
+            reply.addString("nack")
+            reply.addString("Learner not yet initialised")
+
+    def process_data(self, command, reply):
+        if self.learner_initialised:
+            with self.my_mutex:
+                try:
+                    unpickled = pickle.loads(command.get(1).asString())
+                    logging.info("received data with type {} and shape {}".format(type(unpickled),
+                                                                                  str(unpickled.shape)))
+
+                    if type(unpickled) is np.ndarray and unpickled.shape[0] > 0 \
+                            and unpickled.shape[1] == self.vis_graph_parameters['num_inputs']:
+
+                        if self.received_data is None:
+                            self.received_data = unpickled
+                        else:
+                            self.received_data = np.vstack((self.received_data, unpickled))
+                        reply.addString("ack")
+                        self.processing_underway = True
+                    else:
+                        raise TypeError("type must be np.ndarray, number rows > 0 and number columns = {}".
+                                        format(self.vis_graph_parameters['num_cols']))
+                except Exception as e:
+                    logging.warning(str(e))
+                    reply.addString("nack")
+                    reply.addString(str(e))
+        else:
+            reply.addString("nack")
+            reply.addString("Learner not yet initialised")
+
+    def init_in_out(self, num_inputs, num_outputs, input_names, output_names, transfer=True):
+        npts = num_inputs + num_outputs
+        self.vis_graph_parameters['num_inputs'] = num_inputs
+        self.vis_graph_parameters['num_outputs'] = num_outputs
+
+        stat_nodes_names = []
+        if len(input_names) + len(output_names) < npts:
+            logging.info("Lenght of input names {0}+ output names {1} less than number of points {2}".
+                         format(len(num_inputs), len(num_outputs), npts))
+            possible_letters = list(map(chr, range(97, 123)))
+            mults = npts // len(possible_letters)
+            rem = npts % len(possible_letters)
+            for j in range(mults):
+                if j == 0:
+                    stat_nodes_names += possible_letters
+                else:
+                    stat_nodes_names += [possible_letters[j-1]+k for k in possible_letters]
+
+            stat_nodes_names += [possible_letters[mults-1] + k for k in possible_letters[:rem]]
+            input_names = stat_nodes_names[:num_inputs]
+            output_names = stat_nodes_names[num_inputs:]
+
+        if not transfer or len(self.node_data.keys()) == 0:
+            self.node_data = dict()
+            self.edge_data = []
+            self.prev_data = None
+
+            for i in range(num_inputs):
+                self.node_data[str(i)] = node_info(name=input_names[i], type='in')
+
+            for i in range(num_outputs):
+                self.node_data[str(i)] = node_info(name=output_names[i], type='out')
+            rep = yarp.Bottle()
+            cmd = yarp.Bottle()
+            self.trigger_graph_init(cmd, rep)
+
+        for k in self.node_data.keys():
+            print "node", k, ":", self.node_data[k].print_node()
+
+        self.learner_initialised = True
 
     def interruptModule(self):
         """
@@ -300,12 +341,21 @@ class Learner(yarp.RFModule):
 
             Returns: Boolean indicating success of logic or not.
         """
+        logging.info("{}, {}".format(self.received_data is None, self.learner_initialised))
+        if self.received_data is not None and self.learner_initialised:
+            if not self.pause and self.received_data.shape[0] > 0:
+                logging.info(str(self.received_data.shape[0]))
+                currData = self.received_data[0, :]
+                new_nodes, new_edges = self.neurolearn(currData)
+                self.edge_data += new_edges
+                with self.my_mutex:
+                    if self.received_data.shape[0] == 1:
+                        self.received_data = None
+                        self.processing_underway = False
+                    else:
+                        self.received_data = self.received_data[1:]
 
-        if self.ports_list[self.sv_port].getOutputCount() > 0:
-            if self.read_data is not None:
-                if not self.pause and self.init_complete and self.t < self.read_data.shape[0]:
-                    currData = self.read_data[self.t, :]
-                    new_nodes, new_edges = self.neurolearn(currData)
+                if self.connected_to_visualiser:
                     for nn in new_nodes:
                         self.cmd.clear()
                         self.rep.clear()
@@ -319,15 +369,9 @@ class Learner(yarp.RFModule):
                         self.cmd.addInt(ne[0])
                         self.cmd.addInt(ne[1])
                         self.ports_list[self.sv_port].write(self.cmd, self.rep)
-                    self.t += 1
                     logging.info(self.cmd.toString() + " reply: " + self.rep.toString())
-                    time.sleep(self.pauseVal)
-                else:
-                    time.sleep(self.pauseVal)
-            else:
-                time.sleep(self.pauseVal)
-        else:
-            self.wait_connection()
+
+        time.sleep(self.pauseVal)
         return True
 
     def neurolearn(self, currDataSTR):
@@ -347,7 +391,6 @@ class Learner(yarp.RFModule):
         if self.prev_data is not None:
             diffInputs = currData - self.prev_data
             print map(float, currData), self.prev_data, diffInputs
-            # Long term depresion, long term potentiation, changes in synapses that underly hebbian earning
             diff_idx = np.where(diffInputs != 0)[0]
             edge_nodes = []
             if len(diff_idx) > 1:
@@ -357,7 +400,6 @@ class Learner(yarp.RFModule):
                     print self.node_data[str(j)].values
                     # find index of value in values list
                     nod = map(float, self.node_data[str(j)].values).index(currData[j])
-                    # task 3.3.1 hbp human investigation of association
                     # find corresponding edge pair from edges_list
                     curredgepair = list(self.node_data[str(j)].edges_list[nod])
                     # remove current index from edge pair
@@ -393,14 +435,7 @@ sys.excepthook = exception_hook
 if __name__ == '__main__':
     yarp.Network.init()
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--num_inputs", type=int)
-    parser.add_argument("--num_outputs", type=int)
-    parser.add_argument("--dimensions", type=int)
-    parser.add_argument("--datafile")
-    parsearg = parser.parse_args()
-
-    mod = Learner(parsearg)
+    mod = Learner()
     rf = yarp.ResourceFinder()
     rf.setVerbose(True)
     rf.configure(sys.argv)
