@@ -12,6 +12,7 @@ import pickle
 import logging
 import thread
 from neurolearning import nlearn
+import itertools
 warnings.simplefilter("ignore")
 np.set_printoptions(precision=2)
 
@@ -52,10 +53,11 @@ class Learner(yarp.RFModule):
         self.connected_to_visualiser = False
         self.pauseVal = 0.1
         self.node_data = dict()
-        self.edge_data = []
+        self.edge_data = np.zeros((0, 2))
         self.prev_data = None
         self.learner_initialised = False
         self.processing_underway = False
+        self.initialising_graph = False
         # self.args = sysargs
         self.my_mutex = thread.allocate_lock()
         self.vis_graph_parameters = dict()
@@ -224,6 +226,7 @@ class Learner(yarp.RFModule):
         return True
 
     def trigger_graph_init(self, command, reply):
+        self.pause = True
         if self.learner_initialised:
             logging.info("learner initialised")
             self.cmd.clear()
@@ -244,6 +247,7 @@ class Learner(yarp.RFModule):
             logging.info("learner not yet initialised")
             reply.addString("nack")
             reply.addString("Learner not yet initialised")
+        self.pause = False
 
     def process_data(self, command, reply):
         if self.learner_initialised:
@@ -264,7 +268,7 @@ class Learner(yarp.RFModule):
                         self.processing_underway = True
                     else:
                         raise TypeError("type must be np.ndarray, number rows > 0 and number columns = {}".
-                                        format(self.vis_graph_parameters['num_cols']))
+                                        format(len(self.vis_graph_parameters['num_inputs'])))
                 except Exception as e:
                     logging.warning(str(e))
                     reply.addString("nack")
@@ -297,14 +301,14 @@ class Learner(yarp.RFModule):
 
         if not transfer or len(self.node_data.keys()) == 0:
             self.node_data = dict()
-            self.edge_data = []
+            self.edge_data = np.empty((0, 2))
             self.prev_data = None
 
             for i in range(num_inputs):
                 self.node_data[str(i)] = node_info(name=input_names[i], type='in')
 
             for i in range(num_outputs):
-                self.node_data[str(i)] = node_info(name=output_names[i], type='out')
+                self.node_data[str(i+num_inputs)] = node_info(name=output_names[i], type='out')
             rep = yarp.Bottle()
             cmd = yarp.Bottle()
             self.trigger_graph_init(cmd, rep)
@@ -346,8 +350,9 @@ class Learner(yarp.RFModule):
             if not self.pause and self.received_data.shape[0] > 0:
                 logging.info(str(self.received_data.shape[0]))
                 currData = self.received_data[0, :]
-                new_nodes, new_edges = self.neurolearn(currData)
-                self.edge_data += new_edges
+                new_nodes, new_edges, all_edges = self.neurolearn(currData)
+                if len(all_edges) > 0:
+                    self.edge_data = np.vstack((self.edge_data, all_edges))
                 with self.my_mutex:
                     if self.received_data.shape[0] == 1:
                         self.received_data = None
@@ -366,8 +371,8 @@ class Learner(yarp.RFModule):
                         self.cmd.clear()
                         self.rep.clear()
                         self.cmd.addString("add_edge")
-                        self.cmd.addInt(ne[0])
-                        self.cmd.addInt(ne[1])
+                        self.cmd.addInt(int(ne[0]))
+                        self.cmd.addInt(int(ne[1]))
                         self.ports_list[self.sv_port].write(self.cmd, self.rep)
                     logging.info(self.cmd.toString() + " reply: " + self.rep.toString())
 
@@ -376,6 +381,7 @@ class Learner(yarp.RFModule):
 
     def neurolearn(self, currDataSTR):
         new_nodes_list = []
+        all_edges_list = []
         new_edges_list = []
 
         for i, j in enumerate(currDataSTR):
@@ -384,20 +390,21 @@ class Learner(yarp.RFModule):
                 new_node_idx = len(self.node_data.keys())
                 curr_node_data.values = curr_node_data.values + [j]
                 curr_node_data.edges_list = curr_node_data.edges_list + [(i, new_node_idx)]
+                new_edges_list += [(i, new_node_idx)]
                 self.node_data[str(new_node_idx)] = node_info(edges_list=[(i, new_node_idx)])
                 new_nodes_list.append(i)
 
         currData = np.array(map(float, currDataSTR))
         if self.prev_data is not None:
             diffInputs = currData - self.prev_data
-            print map(float, currData), self.prev_data, diffInputs
+            # print map(float, currData), self.prev_data, diffInputs
             diff_idx = np.where(diffInputs != 0)[0]
             edge_nodes = []
             if len(diff_idx) > 1:
-                print "ids", diff_idx
+                # print "ids", diff_idx
                 for j in diff_idx:
                     # find value of index j from currData
-                    print self.node_data[str(j)].values
+                    # print self.node_data[str(j)].values
                     # find index of value in values list
                     nod = map(float, self.node_data[str(j)].values).index(currData[j])
                     # find corresponding edge pair from edges_list
@@ -406,11 +413,16 @@ class Learner(yarp.RFModule):
                     curredgepair.remove(j)
                     edge_nodes += curredgepair
             if len(edge_nodes) > 1:
-                new_edges_list += [tuple(edge_nodes)]
+                if len(edge_nodes) > 2:
+                    edge_combinations = list(itertools.combinations(edge_nodes, 2))
+                    new_edges_list += edge_combinations
+                else:
+                    new_edges_list += [tuple(edge_nodes)]
 
-        print new_nodes_list, new_edges_list
+        # print new_nodes_list, new_edges_list
         self.prev_data = currData
-        return new_nodes_list, new_edges_list
+        return new_nodes_list, np.asarray(new_edges_list, dtype=np.int32), \
+               np.asarray(all_edges_list+new_edges_list, dtype=np.int32)
 
 
 def exception_hook(exc_type, exc_value, exc_traceback):
