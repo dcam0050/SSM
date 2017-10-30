@@ -18,6 +18,7 @@ import yarp
 from SAM.SAM_Core import SAMDriver
 from SAM.SAM_Core import SAMTesting
 import logging
+import copy
 
 ## @ingroup icubclient_SAM_Drivers
 class SAMDriver_interaction(SAMDriver):
@@ -81,6 +82,21 @@ class SAMDriver_interaction(SAMDriver):
             self.paramsDict['pose_selection'] = int(parser.get(trainName, 'pose_selection'))
         else:
             self.paramsDict['pose_selection'] = 0
+
+        if parser.has_option(trainName, 'binWidth'):
+            self.paramsDict['binWidth'] = float(parser.get(trainName, 'binWidth'))
+        else:
+            self.paramsDict['binWidth'] = 0.001
+
+        if parser.has_option(trainName, 'method'):
+            self.paramsDict['method'] = parser.get(trainName, 'method')
+        else:
+            self.paramsDict['method'] = 'sumProb'
+
+        if parser.has_option(trainName, 'labelsAllowedList'):
+            self.paramsDict['labelsAllowedList'] = parser.get(trainName, 'labelsAllowedList').split(',')
+        else:
+            self.paramsDict['labelsAllowedList'] = ['Daniel']
 
     def saveParameters(self):
         """
@@ -197,9 +213,52 @@ class SAMDriver_interaction(SAMDriver):
 
         self.Y = img_data
         self.L = img_label_data
+        self.allDataDict = dict()
+        self.allDataDict['Y'] = copy.deepcopy(self.Y)
+        self.allDataDict['L'] = copy.deepcopy(self.L)
+
+        train_list = [n for n, j in enumerate(img_label_data) if j in self.paramsDict['labelsAllowedList']]
+
+        self.Y = self.Y[train_list]
+        self.L = [self.L[index] for index in train_list]
+
+        print self.allDataDict['Y'].shape, len(self.allDataDict['L'])
+        print self.Y.shape, len(self.L)
         return self.Y.shape[1]
 
-    def processLiveData(self, dataList, thisModel, verbose, additionalData=dict()):
+    def testPerformance(self, testModel, Yall, Lall, YtestAll, LtestAll, verbose):
+        """
+        Custom testPerformance method. This augments the standard testPerformance method by including testing of known and unknown together with testing on known training points and known testing points.
+
+        Args:
+            testModel : SAMObject Model to be tested.
+            Yall : Numpy array with training data vectors to be tested.
+            Lall : List with corresponding training data labels.
+            YtestAll : Numpy array with testing data vectors to be tested.
+            LtestAll : List with corresponding testing data labels.
+            verbose : Boolean turning logging to stdout on or off.
+
+        Returns:
+             Square numpy array confusion matrix.
+        """
+
+        yTrainingData = SAMTesting.formatDataFunc(Yall)
+        [self.segTrainConf, self.segTrainPerc, labelsSegTrain, labelComparisonDict] = \
+            SAMTesting.testSegments(testModel, yTrainingData, Lall, verbose, 'Training')
+
+        yTrainingData = SAMTesting.formatDataFunc(YtestAll)
+        [self.segTestConf, self.segTestPerc, labelsSegTest, labelComparisonDict] = \
+            SAMTesting.testSegments(testModel, yTrainingData, LtestAll, verbose, 'Testing')
+
+        yTrainingData = SAMTesting.formatDataFunc(self.allDataDict['Y'])
+        [self.seqTestConf, self.seqTestPerc, labelsSeqTest, _] = SAMTesting.testSegments(testModel, yTrainingData,
+                                                                       self.allDataDict['L'], verbose, 'All')
+
+        return self.segTestConf, labelsSegTest, labelComparisonDict
+
+
+
+    def processLiveData(self, dataList, thisModel, verbose, additionalData=dict(), visualiseInfo=None):
         """
             Method which receives a list of data frames and outputs a classification if available or 'no_classification' if it is not
 
@@ -241,7 +300,7 @@ class SAMDriver_interaction(SAMDriver):
                 logging.info(instance.shape)
                 logging.info("Collected face: " + str(i))
                 logging.info('testing enter')
-                [labels[i], likelihoods[i]] = SAMTesting.testSegment(thisModel, instance, verbose, None)
+                [labels[i], likelihoods[i]] = SAMTesting.testSegment(thisModel, instance, verbose, visualiseInfo=visualiseInfo)
                 logging.info('testing leave')
             logging.info('combine enter')
             finalClassLabel, finalClassProb = SAMTesting.combineClassifications(thisModel, labels, likelihoods)

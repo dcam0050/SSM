@@ -644,7 +644,7 @@ def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, o
     verbose = False
     if len(Lsample) < 400:
         numTrials = len(Lsample)*0.1
-        numTrials = int(numTrials)
+        numTrials = max(1, int(numTrials))
     else:
         numTrials = 20
     t0 = time.time()
@@ -711,7 +711,7 @@ def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, o
                              + ret[i][0].ljust(off1) + ' with ' + str(ret[i][1])[:6].ljust(off2) +
                              ' confidence: ' + str(result))
 
-            if currLabel in thisModel[0].textLabels:
+            if currLabel in thisModel[0].textLabels and currLabel != "unknown":
                 knownLabel = True
             else:
                 knownLabel = False

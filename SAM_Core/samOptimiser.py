@@ -340,7 +340,7 @@ class modelOptClass(object):
         # print
         self.parser.write(open(self.dataDir + "/config.ini", 'wb'))
 
-        args = ' '.join([self.dataDir, self.modelDir, self.driverName, 'new', self.baseName])
+        args = ' '.join([self.dataDir, self.modelDir, self.driverName, 'new', self.baseName, 'True'])
 
         cmd = self.fName + ' ' + args
         # NEW
@@ -495,7 +495,7 @@ def main():
         f = sys.argv[6]
         per = sys.argv[7] == 'True'
         # per = True
-        wind = sys.argv[8] == 'True'
+        wind = sys.argv[8] == 'False'
         verb = sys.argv[9] == 'True'
 
         optModel = modelOptClass(a, b, c, d, e, f, per, wind, verb)

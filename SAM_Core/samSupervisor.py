@@ -215,9 +215,7 @@ class SamSupervisorModule(yarp.RFModule):
 
             self.modelPath = self.rootPath + '/Models'
             self.dataPath = self.rootPath + '/Data' 
-            # OLD
-            # self.trainingFunctionsPath = os.environ.get("ICUBCLIENT_DIR")+"/bin"
-            # NEW
+            
             self.trainingFunctionsPath = SAM.SAM_Drivers.__path__
             self.trainingListHandles = dict()
             self.loadedListHandles = dict()
@@ -247,21 +245,21 @@ class SamSupervisorModule(yarp.RFModule):
                 self.opcPort.open(self.opcPortName)
                 yarp.Network.connect(self.opcPortName, self.opcRPCName)
 
-            # if len(nodesDict) > 0:
-            #     self.cluster = utils.ipyClusterManager(nodesDict, controllerIP, self.devnull, totalControl=True)
-            #     success = self.cluster.startCluster()
-            #
-            #     if not success:
-            #         self.cluster = None
-            #         cmd = 'ipcluster start -n 4'
-            #         command = "bash -c \"" + cmd + "\""
-            #
-            #         if self.windowed:
-            #             c = subprocess.Popen([self.terminal, '-e', command], shell=False)
-            #         else:
-            #             c = subprocess.Popen([cmd], shell=True)
-            #
-            #         self.trainingListHandles['Cluster'] = c
+            if len(nodesDict) > 0:
+                self.cluster = utils.ipyClusterManager(nodesDict, controllerIP, self.devnull, totalControl=True)
+                success = self.cluster.startCluster()
+
+                if not success:
+                    self.cluster = None
+                    cmd = 'ipcluster start -n 4'
+                    command = "bash -c \"" + cmd + "\""
+
+                    if self.windowed:
+                        c = subprocess.Popen([self.terminal, '-e', command], shell=False)
+                    else:
+                        c = subprocess.Popen([cmd], shell=True)
+
+                    self.trainingListHandles['Cluster'] = c
 
             if len(self.uptodateModels) + len(self.updateModels) > 0:
                 if self.verbose:
@@ -668,6 +666,10 @@ class SamSupervisorModule(yarp.RFModule):
         for e in self.rpcConnections:
             if command.get(0).asString() in e[3]:
                 e[1].write(command, reply)
+
+    @staticmethod
+    def signal_handler(signum, frame):
+        raise Exception("Timed out!")
 
     def interruptModule(self):
         """

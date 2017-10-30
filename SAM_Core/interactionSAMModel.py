@@ -16,6 +16,7 @@ import logging
 from os.path import join
 import os
 from operator import itemgetter
+import copy
 import thread
 warnings.simplefilter("ignore")
 np.set_printoptions(precision=2)
@@ -32,6 +33,7 @@ class interactionSAMModel(yarp.RFModule):
             dataIn = <portName/ofInputData>:i <dataType of Port>
             dataOut = <portName/ofOutputData>:o <dataType of Port>
             rpcBase = <portName/ofRpcPort>
+            latentModelPort = <portName/ofLatentModelPort>
             call_sign = ask_<X>_label,ask_<X>_instance
             collectionMethod = collectionMethod lengthOfBuffer
 
@@ -39,6 +41,7 @@ class interactionSAMModel(yarp.RFModule):
             dataIn = /sam/faces/imageData:i ImageRgb
             dataOut = /sam/faces/imageData:o ImageMono
             rpcBase = /sam/faces/rpc
+            latentModelPort = /sam/faces/latentModel
             callSign = ask_face_label,ask_face_instance
             collectionMethod = future_buffered 3
 
@@ -46,6 +49,7 @@ class interactionSAMModel(yarp.RFModule):
             dataIn : The port name for the port that will received the data to be classified and the dataType to be expected.
             dataOut : The port name for the port that will output generated data and the dataType to be transmitted.
             rpcBase : The rpc port that will receive external requests. This is usually controlled by samSupervisor.py.
+            latentModelPort : The port name for the port that will transmit the image showing the latent model of the current model
             call_sign : The commands that will trigger a classify from data event or a generate from label event.
             collectionMethod : The collection method to be used. Either `buffered`, `future_buffered` or `continuous`. Followed by an integer indicating the length of the buffer to be used. In the case of `continuous` the buffer length is the maximum number of classification labels to be stored in a First In Last Out (FILO) configuration. Otherwise the buffer length indicates the number of data frames that are required for a classification to take place.
 
@@ -70,6 +74,7 @@ class interactionSAMModel(yarp.RFModule):
         self.listOfModels = None
         self.portsList = []
         self.svPort = None
+        self.latentPort = None
         self.labelPort = None
         self.instancePort = None
         self.callSignList = []
@@ -108,6 +113,8 @@ class interactionSAMModel(yarp.RFModule):
         self.probClassList = None
         self.recency = None
         self.useRecentClassTime = True
+        self.drawLatent = False
+        self.latentPlots = None
         self.my_mutex = thread.allocate_lock()
 
     def configure(self, rf):
@@ -188,9 +195,18 @@ class interactionSAMModel(yarp.RFModule):
                     self.portsList[j].open(self.portNameList[j][1]+":i")
                     self.svPort = j
                     self.attach(self.portsList[j])
+                elif self.portNameList[j][0] == 'visualise':
+                    if self.portNameList[j][1] == "True":
+                        self.drawLatent = True
                 elif self.portNameList[j][0] == 'callsign':
                     # should check for repeated call signs by getting list from samSupervisor
                     self.callSignList = self.portNameList[j][1].split(',')
+                elif self.portNameList[j][0] == 'latentmodelport':
+                    self.portsList.append(yarp.BufferedPortImageRgb())
+                    self.latentPort = j
+                    ports = self.portNameList[j][1].split(',')
+                    self.portsList[j].open(ports[0])
+                    yarp.Network.connect(ports[0], ports[1])
                 elif self.portNameList[j][0] == 'collectionmethod':
                     self.collectionMethod = self.portNameList[j][1].split(' ')[0]
                     try:
@@ -268,8 +284,12 @@ class interactionSAMModel(yarp.RFModule):
             self.classTimestamps = []
             yarp.Network.init()
 
-            self.mm = initialiseModels([self.dataPath, self.modelPath, self.driverName], 'update', 'interaction')
+            self.mm = initialiseModels([self.dataPath, self.modelPath, self.driverName], 'update', 'interaction', drawLatent=self.drawLatent)
             self.modelLoaded = True
+            if self.drawLatent:
+                self.latentPlots = dict()
+                self.latentPlots['ax'], self.latentPlots['dims'] = self.mm[0].SAMObject.visualise(plot_scales=True)
+                self.sendLatent(self.latentPlots['ax'])
 
             if self.mm[0].model_mode != 'temporal':
                 self.bufferSize = proposedBuffer
@@ -284,6 +304,18 @@ class interactionSAMModel(yarp.RFModule):
         else:
             logging.error('Section ' + str(self.modelRoot) + ' not found in ' + str(self.configPath))
             return False
+
+    def sendLatent(self, latentPlots):
+        print "entered saved latent"
+        data = np.fromstring(latentPlots.figure.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        data = data.reshape(latentPlots.figure.canvas.get_width_height()[::-1] + (3,))
+        print data.shape
+
+        yarpImage = self.portsList[self.latentPort].prepare()
+        yarpImage.resize(data.shape[1], data.shape[0])
+        data = data.astype(np.uint8)
+        yarpImage.setExternal(data, data.shape[1], data.shape[0])
+        self.portsList[self.latentPort].write()
 
     def close(self):
         """
@@ -437,9 +469,13 @@ class interactionSAMModel(yarp.RFModule):
             if self.collectionMethod == 'buffered':
                 if self.modelLoaded:
                     logging.debug('going in process live')
+                    self.latentPlots['ax'], _ = self.mm[0].SAMObject.visualise(plot_scales=True)
                     thisClass, probClass, dataList = self.mm[0].processLiveData(self.dataList, self.mm,
                                                                                 verbose=self.verboseSetting,
-                                                                                additionalData=self.additionalInfoDict)
+                                                                                additionalData=self.additionalInfoDict,
+                                                                                visualiseInfo=self.latentPlots)
+                    if self.drawLatent:
+                        self.sendLatent(self.latentPlots['ax1'][0].axes)
                     logging.debug('exited process live')
                 else:
                     thisClass = None
@@ -550,13 +586,21 @@ class interactionSAMModel(yarp.RFModule):
                 for j in range(self.bufferSize):
                     self.dataList.append(self.readFrame())
                 if self.modelLoaded:
+                    self.latentPlots['ax'], _ = self.mm[0].SAMObject.visualise(plot_scales=True)
                     thisClass, probClass, dataList = self.mm[0].processLiveData(self.dataList, self.mm,
                                                                                 verbose=self.verboseSetting,
-                                                                                additionalData=self.additionalInfoDict)
+                                                                                additionalData=self.additionalInfoDict,
+                                                                                visualiseInfo=self.latentPlots)
+                    if self.drawLatent:
+                        self.sendLatent(self.latentPlots['ax1'][0].axes)
+                        # self.latentPlots['ax1'].pop(0).remove()
                 else:
                     thisClass = None
 
                 if thisClass is None or dataList is None:
+                    logging.info('thisClass or dataList returned None')
+                    logging.debug('thisClass: ' + str(type(thisClass)) + ' ' + str(thisClass))
+                    logging.debug('dataList: ' + str(type(dataList)) + ' ' + str(dataList))
                     reply.addString('nack')
                 else:
                     reply.addString('ack')
@@ -751,9 +795,13 @@ class interactionSAMModel(yarp.RFModule):
             # process list of frames for a classification
             dataList = []
             if self.modelLoaded:
+                self.latentPlots['ax'], _ = self.mm[0].SAMObject.visualise(plot_scales=True)
                 thisClass, probClass, dataList = self.mm[0].processLiveData(self.dataList, self.mm,
                                                                             verbose=self.verboseSetting,
-                                                                            additionalData=self.additionalInfoDict)
+                                                                            additionalData=self.additionalInfoDict,
+                                                                            visualiseInfo=self.latentPlots)
+                if self.drawLatent:
+                    self.sendLatent(self.latentPlots['ax1'][0].axes)
             else:
                 thisClass = None
             # if proper classification

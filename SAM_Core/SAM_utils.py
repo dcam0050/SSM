@@ -20,6 +20,10 @@ from SAM.SAM_Core import samOptimiser
 from os import listdir
 from os.path import join, isdir
 import threading
+import os
+import subprocess
+import time
+import ipyparallel as ipp
 import logging
 
 np.set_printoptions(precision=2)
@@ -29,7 +33,7 @@ np.set_printoptions(precision=2)
 ## \ingroup icubclient_SAM_source
 
 
-def initialiseModels(argv, update, initMode='training'):
+def initialiseModels(argv, update, initMode='training', drawLatent=False):
     """Initialise SAM Model data structure, training parameters and user parameters.
 
         This method starts by initialising the required Driver from the driver name in argv[3] if it exists
@@ -89,6 +93,7 @@ def initialiseModels(argv, update, initMode='training'):
     logging.info('-------------------')
     logging.info('Loading Parameters...')
     logging.info('')
+    temporalFlag = False
     modeConfig = ''
     found = ''
     try:
@@ -267,10 +272,15 @@ def initialiseModels(argv, update, initMode='training'):
 
     mySAMpy.save_model = False
     mySAMpy.economy_save = True
-    mySAMpy.visualise_output = False
+    mySAMpy.visualise_output = drawLatent
     # test_mode = True
 
     mySAMpy.readData(dataPath, participantList)
+    # at this point, all the data that will be eventually used for training is contained in mySAMpy.Y
+    # and mySAMpy.L contains all labels if any (depending on mrd model or bgplvm model)
+    # mySAMpy.L is a list of labels while mySAMpy.Y is a numpy array of data
+    # mySAMpy.Y should have 2 dimensions, length of dimension 0 = number of instances
+    # length of dimension 1 = length of feature vector
 
     if mySAMpy.model_mode != 'temporal':
         # get list of labels
@@ -706,7 +716,9 @@ def smooth1D(x, window_len=11, window='hanning'):
         window: The type of window from 'flat', 'hanning', 'hamming', 'bartlett', 'blackman' flat window will produce a moving average smoothing.
 
     output:
-        The smoothed signal.
+        The smoothed signal
+
+    NOTE: length(output) != length(input), to correct this: return y[(window_len/2-1):-(window_len/2)] instead of just y.
     """
 
     if x.ndim != 1:
@@ -783,5 +795,91 @@ def transformTimeSeriesToSeq(Y, timeWindow, offset=1, normalised=False, reduced=
         if not noY:
             Ynew[i, :] = Y[base + timeWindow, :]
     return X, Ynew
+
+def RepresentsInt(s):
+    try:
+        int(s)
+        return True
+    except ValueError:
+        return False
+
+
+class ipyClusterManager:
+    def __init__(self, nodesDict, controllerIP, devnull, totalControl=True):
+        self.expectedProcessors = 0
+        self.actualProcessors = 0
+        self.totalControl = totalControl
+        self.controllerProc = []
+        self.nodesDict = nodesDict
+        self.controllerIP = controllerIP
+        self.devnull = devnull
+
+    def startCluster(self):
+        try:
+            self.controllerProc.append(
+                subprocess.Popen(["ipcontroller", '--ip=' + self.controllerIP], stdout=self.devnull))
+            for j in self.nodesDict.keys():
+                if j != 'localhost':
+                    cmd = 'scp ~/.ipython/profile_default/security/ipcontroller-engine.json ' + j + ':./'
+                    os.system(cmd)
+                    time.sleep(5)
+
+            for j in self.nodesDict.keys():
+                logging.info(str(j))
+                if j != 'localhost':
+                    if self.totalControl:
+                        cmd = ['ssh', j, 'ipengine', '--file=~/ipcontroller-engine.json', '&']
+                    else:
+                        cmd = 'ssh ' + j + ' ipengine --file=~/ipcontroller-engine.json &'
+                else:
+                    if self.totalControl:
+                        cmd = ['ipengine', '&']
+                    else:
+                        cmd = 'ipengine &'
+
+                for n in range(self.nodesDict[j]):
+                    self.expectedProcessors += 1
+                    logging.info('\t' + ' '.join(cmd))
+                    if self.totalControl:
+                        self.controllerProc.append(subprocess.Popen(cmd, stdout=self.devnull))
+                    else:
+                        os.system(cmd)
+                    time.sleep(2)
+
+            logging.info('Waiting for engines to start')
+            time.sleep(max(self.expectedProcessors, 10))
+            success = True
+            try:
+                c = ipp.Client()
+                self.actualProcessors = len(c._engines)
+                c.close()
+                del c
+                logging.info('Controller started correctly')
+            except:
+                success = False
+                self.terminateProcesses()
+                logging.error('Controller failure')
+
+            if self.actualProcessors == 0:
+                success = False
+                logging.error('Complete engine failure')
+            else:
+                logging.info('Engines started correctly')
+        except:
+            success = False
+            self.terminateProcesses()
+            logging.error('Failed to initialise controller')
+
+        return success
+
+    def terminateProcesses(self):
+        for j in self.controllerProc:
+            try:
+                j.kill()
+                j.wait()
+            except:
+                pass
+            time.sleep(0.2)
+        self.actualProcessors = 0
 
 ## @}

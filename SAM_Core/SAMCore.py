@@ -248,6 +248,9 @@ class LFM(object):
         # if self.type == 'mrd' and which_indices is None:
         #    # Assume that labels modality is always the last one!!
         #    which_indices = most_significant_input_dimensions(self.model.bgplvms[-1],None)
+        if which_indices is None:
+            which_indices = most_significant_input_dimensions(self.model)
+
         if self.type == 'bgplvm' or self.type == 'mrd':
             if self.model.data_labels is not None:
                 ret = self.model.plot_latent(labels=self.model.data_labels, which_indices=which_indices)
@@ -262,7 +265,7 @@ class LFM(object):
         #    ret1 = self.model.X.plot("Latent Space 1D")
         #    ret2 = self.model.plot_scales("MRD Scales")
         
-        return ret
+        return ret, which_indices
 
     def visualise_interactive(self, dimensions=(20, 28), transpose=True, order='F', invert=False, scale=False,
                               colorgray=True, view=0, which_indices=(0, 1)):
@@ -330,8 +333,9 @@ class LFM(object):
             return self.model.bgplvms[0].Y[locations, :].values
 
     def pattern_completion(self, test_data, view=0, verbose=False, visualiseInfo=None, optimise=100):
+        import copy
         """Recall novel events
-
+        
         Description:
             In the case of supervised learning, pattern completion means that we give new inputs and infer their corresponding outputs. In the case of unsupervised learning, pattern completion means that we give new outputs and we infer their corresponding "latent" inputs, ie the internal compressed representation of the new outputs in terms of the already formed "synapses".
 
@@ -366,9 +370,12 @@ class LFM(object):
 
         if (self.type == 'mrd' or self.type == 'bgplvm') and visualiseInfo is not None:
             ax = visualiseInfo['ax']
-            inds0, inds1 = most_significant_input_dimensions(self.model, None)
-            pp = ax.plot(pred_mean[:, inds0], pred_mean[:, inds1], 'om', markersize=11, mew=11)
+            inds0 = visualiseInfo['dims'][0]
+            inds1 = visualiseInfo['dims'][1]
+            pp = ax.plot(pred_mean[:, inds0], pred_mean[:, inds1], 'or', markersize=11)
             pb.draw()
+            print "not none"
+            visualiseInfo['ax1'] = pp
         else:
             pp = None
         
@@ -634,7 +641,7 @@ def most_significant_input_dimensions(model):
     else:
         try:
             input_1, input_2 = np.argsort(model.input_sensitivity())[::-1][:2]
-        except:
+	except:
             raise ValueError("cannot automatically determine which dimensions to plot, please pass 'which_indices'")
-
+    
     return input_1, input_2
