@@ -89,6 +89,7 @@ class SAMDriver:
 
         self.additionalParametersList = []
 
+
     def loadParameters(self, parser, trainName):
         """
             Function to load parameters from the model config.ini file.
