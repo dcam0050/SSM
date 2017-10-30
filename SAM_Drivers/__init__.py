@@ -6,6 +6,8 @@
 
 ##
 from .SAMDriver_ARWin import *
+from .SAMDriver_temporalActions import *
+from .SAMDriver_temporal import *
 from .SAMDriver_interaction import *
 ## @}
 

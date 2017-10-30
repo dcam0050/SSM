@@ -335,7 +335,7 @@ class SAMDriver_AR(SAMDriver):
             labelFile.close()
 
             if lenLabelFile != lenDataFile:
-                print str(dataLogList[k]) + ' will not be used because its lenght differs from ' + str(labelsLogList[k])
+                print str(dataLogList[k]) + ' will not be used because its length differs from ' + str(labelsLogList[k])
             else:
                 dataFile = open(join(root_data_dir, dataLogList[k]), 'r')
                 labelFile = open(join(root_data_dir, labelsLogList[k]), 'r')
@@ -631,15 +631,15 @@ class SAMDriver_AR(SAMDriver):
     def testPerformance(self, testModel, Yall, Lall, YtestAll, LtestAll, verbose):
 
         yTrainingData = SAMTesting.formatDataFunc(Yall)
-        [self.segTrainConf, self.segTrainPerc, _] = SAMTesting.testSegments(testModel, yTrainingData, Lall, verbose, 'Training')
+        [self.segTrainConf, self.segTrainPerc, _, _] = SAMTesting.testSegments(testModel, yTrainingData, Lall, verbose, 'Training')
 
         yTrainingData = SAMTesting.formatDataFunc(YtestAll)
-        [self.segTestConf, self.segTestPerc, _] = SAMTesting.testSegments(testModel, yTrainingData, LtestAll, verbose, 'Testing')
+        [self.segTestConf, self.segTestPerc, labelsSegTest, labelComparisonDict] = SAMTesting.testSegments(testModel, yTrainingData, LtestAll, verbose, 'Testing')
 
         # self.sequenceConfig()
         # [self.seqConf, self.seqPerc, _] = self.testSequence(testModel)
 
-        return self.segTestConf
+        return self.seqConf, labelsSegTest, labelComparisonDict
 
     @staticmethod
     def distEuc(a, b):

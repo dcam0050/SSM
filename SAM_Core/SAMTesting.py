@@ -180,6 +180,23 @@ def calibrateSingleModelRecall(thisModel):
         bins = range(int(numBins))
         bins = np.multiply(bins, thisModel[0].classificationDict['binWidth'])
 
+       # This section is to be tested to check proper operation in creating the number of bins should number of bins instead of bin width be defined
+       # if thisModel[0].paramsDict['useBinWidth']:
+       #     numBins = np.ceil(np.max(varianceAllArray) / thisModel[0].classificationDict['binWidth'])
+       #     if numBins < 10:
+       #         numBins = 10
+       #         mul_factor = np.max(varianceAllArray) - np.min(varianceAllArray) / 10
+       #     else:
+       #         mul_factor = thisModel[0].classificationDict['binWidth']
+       # else:
+       #     numBins = thisModel[0].paramsDict['numBins']
+       #     mul_factor = (np.max(varianceAllArray) - np.min(varianceAllArray)) / numBins
+       #     thisModel[0].classificationDict['binWidth'] = mul_factor
+       #     numBins = int(np.ceil(np.max(varianceAllArray) / thisModel[0].classificationDict['binWidth']))
+       #
+       # bins = range(int(numBins))
+       # bins = np.multiply(bins, mul_factor)
+
         for j in range(len(variancesKnown[0]) - 2):
             histKnown[j], binEdges[j] = np.histogram(variancesKnownArray[:, j], bins=bins)
             histKnown[j] = 1.0 * histKnown[j] / np.sum(histKnown[j])
@@ -644,7 +661,7 @@ def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, o
     verbose = False
     if len(Lsample) < 400:
         numTrials = len(Lsample)*0.1
-        numTrials = int(numTrials)
+        numTrials = max(1, int(numTrials))
     else:
         numTrials = 20
     t0 = time.time()
@@ -711,7 +728,7 @@ def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, o
                              + ret[i][0].ljust(off1) + ' with ' + str(ret[i][1])[:6].ljust(off2) +
                              ' confidence: ' + str(result))
 
-            if currLabel in thisModel[0].textLabels:
+            if currLabel in thisModel[0].textLabels and currLabel != "unknown":
                 knownLabel = True
             else:
                 knownLabel = False

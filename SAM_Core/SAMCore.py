@@ -248,6 +248,9 @@ class LFM(object):
         # if self.type == 'mrd' and which_indices is None:
         #    # Assume that labels modality is always the last one!!
         #    which_indices = most_significant_input_dimensions(self.model.bgplvms[-1],None)
+        if which_indices is None:
+            which_indices = most_significant_input_dimensions(self.model)
+
         if self.type == 'bgplvm' or self.type == 'mrd':
             if self.model.data_labels is not None:
                 ret = self.model.plot_latent(labels=self.model.data_labels, which_indices=which_indices)
@@ -262,7 +265,7 @@ class LFM(object):
         #    ret1 = self.model.X.plot("Latent Space 1D")
         #    ret2 = self.model.plot_scales("MRD Scales")
         
-        return ret
+        return ret, which_indices
 
     def visualise_interactive(self, dimensions=(20, 28), transpose=True, order='F', invert=False, scale=False,
                               colorgray=True, view=0, which_indices=(0, 1)):
@@ -330,8 +333,9 @@ class LFM(object):
             return self.model.bgplvms[0].Y[locations, :].values
 
     def pattern_completion(self, test_data, view=0, verbose=False, visualiseInfo=None, optimise=100):
+        import copy
         """Recall novel events
-
+        
         Description:
             In the case of supervised learning, pattern completion means that we give new inputs and infer their corresponding outputs. In the case of unsupervised learning, pattern completion means that we give new outputs and we infer their corresponding "latent" inputs, ie the internal compressed representation of the new outputs in terms of the already formed "synapses".
 
@@ -366,9 +370,12 @@ class LFM(object):
 
         if (self.type == 'mrd' or self.type == 'bgplvm') and visualiseInfo is not None:
             ax = visualiseInfo['ax']
-            inds0, inds1 = most_significant_input_dimensions(self.model, None)
-            pp = ax.plot(pred_mean[:, inds0], pred_mean[:, inds1], 'om', markersize=11, mew=11)
+            inds0 = visualiseInfo['dims'][0]
+            inds1 = visualiseInfo['dims'][1]
+            pp = ax.plot(pred_mean[:, inds0], pred_mean[:, inds1], 'or', markersize=11)
             pb.draw()
+            print "not none"
+            visualiseInfo['ax1'] = pp
         else:
             pp = None
         
@@ -634,7 +641,339 @@ def most_significant_input_dimensions(model):
     else:
         try:
             input_1, input_2 = np.argsort(model.input_sensitivity())[::-1][:2]
-        except:
+	except:
             raise ValueError("cannot automatically determine which dimensions to plot, please pass 'which_indices'")
-
+    
     return input_1, input_2
+
+
+def latent_cluster_estimate(SAMObject, n_components=10, X=None, plot=True, alpha=10, covariance_type='diag',which_indices=(0,1)):
+    """
+    Use Dirichlet Process GMMs to cluster the latent space by automatically estimating an effective number of clusters.
+    ARG SAMObject: The SAMObject to operate on.
+    ARG n_components: The number of DPGMM commponents to use (ie max number of clusters). Some components will switch off.
+    ARG X: If None, we'll use the SAMObject's latent space, otherwise the provided one.
+    ARG plot: Whether to plot the result or not.
+    ARG alpha: The parameter for the stick-breaking process. In theory, large alpha encourages more clusters, although in practice I haven't seen such behaviour.
+    ARG covariance_type: See DPGMM from scikit-learn.
+    ARG which_indices: If plotting, which indices to plot.
+    RETURN Y_: The cluster assignments for each component in the latent space. This is not (0,1,...,n_clusters), but instead it is
+               (0,1,...,n_components), so that switched off components will not appear in Y_.
+    """
+    from sklearn import mixture
+
+    if X is None:
+        X = SAMObject._get_latent()
+    # Fit a Dirichlet process mixture of Gaussians using five components
+    dpgmm = mixture.DPGMM(n_components=n_components, covariance_type=covariance_type, n_iter=5000,alpha=alpha)
+    dpgmm.fit(X)
+    Y_ = dpgmm.predict(X)
+
+    if plot:
+        from scipy import linalg
+        import matplotlib as mpl
+        import itertools
+
+        color_iter = colors = cm.rainbow(np.linspace(0, 1, 20))
+        myperm = np.random.permutation(color_iter.shape[0])
+        color_iter = color_iter[myperm, :]
+        marker_iter = itertools.cycle((',', '+', '.', 'o', '*','v','x','>')) 
+        splot = pb.subplot(1, 1, 1)
+
+        for i, (mean, covar, color,marker) in enumerate(zip(dpgmm.means_, dpgmm._get_covars(), color_iter,marker_iter)):
+            # as the method will not use every component it has access to
+            # unless it needs it, we shouldn't plot the redundant components.
+            # if not np.any(Y_ == i):
+            #    continue
+            pb.scatter(X[Y_ == i, which_indices[0]], X[Y_ == i, which_indices[1]], s=40, color=color,marker=marker)
+
+        pb.legend(np.unique(Y_))
+        pb.show()
+        pb.draw()
+        pb.show()
+    return Y_
+
+
+def latent_cluster(SAMObject, n_clusters=10, X=None, plot=True, which_indices=(0,1)):
+    """
+    Use Anglomerative clustering to cluster the latent space by having a given number of clusters.
+    ARG SAMObject: The SAMObject to operate on.
+    ARG n_clusters: The number of clusters to find.
+    ARG X: If None, we'll use the SAMObject's latent space, otherwise the provided one.
+    ARG plot: Whether to plot the result or not.
+    ARG which_indices: If plotting, which indices to plot.
+    RETURN Y_: The cluster assignments for each component in the latent space. 
+    """
+    from sklearn.cluster import AgglomerativeClustering
+
+    if X is None:
+        X = SAMObject._get_latent()
+
+    # Define the structure A of the data. Here a 10 nearest neighbors
+    from sklearn.neighbors import kneighbors_graph
+    connectivity = kneighbors_graph(X, n_neighbors=10, include_self=False)
+
+    # Compute clustering
+    print("Compute structured hierarchical clustering...")
+    ward = AgglomerativeClustering(n_clusters=n_clusters, connectivity=connectivity, linkage='ward',
+                                   compute_full_tree=True).fit(X)
+    # ward = AgglomerativeClustering(n_clusters=8,linkage='ward',compute_full_tree=True).fit(X)
+    Y_ = ward.labels_
+
+    if plot:
+        color_iter = colors = cm.rainbow(np.linspace(0, 1, 20))
+
+        # ---- a silly way to get maximal separation in colors for the n_cluster first elements...
+        # move to separate function
+        index_all = np.linspace(0, 19, 20).astype(int)
+        space = np.floor(color_iter.shape[0]/float(n_clusters)).astype(int)
+        index_first = index_all[::space][:n_clusters]
+        index_rest = np.array(list(set(index_all)-set(index_first)))
+        myperm = np.random.permutation(index_rest.shape[0])
+        index_rest = index_rest[myperm]
+        inds = np.hstack((index_first, index_rest))
+
+        color_iter = color_iter[inds,:]
+
+        marker_iter = itertools.cycle((',', '+', '.', 'o', '*','v','x','>')) 
+        splot = pb.subplot(1, 1, 1)
+
+        for i, (color, marker) in enumerate(zip(color_iter, marker_iter)):
+            # as the method will not use every component it has access to unless it needs it,
+            # we shouldn't plot the redundant components.
+            # if not np.any(Y_ == i):
+            #    continue
+            # ##### tmp
+            # cc = ['b','g','r']
+            # mm = ['<','^','>']
+            # pb.scatter(X[Y_ == i, which_indices[0]], X[Y_ == i, which_indices[1]], s=40, color=cc[i],marker=mm[i])
+            # ######
+            pb.scatter(X[Y_ == i, which_indices[0]], X[Y_ == i, which_indices[1]], s=40, color=color,marker=marker) #UNCOMMENT
+            if i >= n_clusters:
+                break
+
+        pb.legend(np.unique(Y_))
+        pb.show()
+        pb.draw()
+        pb.show()
+    return Y_
+
+
+def util_plot_cov_ellipse(pos, cov, volume=.5, ax=None, fc='none', ec=[0,0,0], a=1, lw=2, which_indices=(0,1)):
+    """
+    SEE: http://www.nhsilbert.net/source/2014/06/bivariate-normal-ellipse-plotting-in-python/
+    #
+    Plots an ellipse enclosing *volume* based on the specified covariance
+    matrix (*cov*) and location (*pos*). Additional keyword arguments are passed on to the 
+    ellipse patch artist.
+
+    Parameters
+    ----------
+        cov : The 2x2 covariance matrix to base the ellipse on
+        pos : The location of the center of the ellipse. Expects a 2-element
+            sequence of [x0, y0].
+        volume : The volume inside the ellipse; defaults to 0.5
+        ax : The axis that the ellipse will be plotted on. Defaults to the 
+            current axis.
+    """
+
+    import numpy as np
+    from scipy.stats import chi2
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Ellipse
+
+    if ax is None:
+        ax = plt.gca()
+
+    vals, vecs = np.linalg.eigh(cov)
+    order = vals.argsort()[::-1]
+    vals = vals[order]
+    vecs = vecs[:, order]
+    angle = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+
+    kwrg = {'facecolor': fc, 'edgecolor': ec, 'alpha': a, 'linewidth': lw}
+
+    # Width and height are "full" widths, not radius
+    width, height = 2 * np.sqrt(chi2.ppf(volume,2)) * np.sqrt(vals)
+    posOrder = [which_indices[0], which_indices[1]]
+    ellip = Ellipse(xy=pos[posOrder], width=width, height=height, angle=angle, **kwrg)
+    ax.add_artist(ellip)
+
+    plt.draw()
+    plt.show()
+    plt.draw()
+    plt.plot(pos[which_indices[0]], pos[which_indices[1]], 'k+', markersize=15, mew=2)
+
+
+#def util_plot_cov_ellipse(mean,covar,ax=None):
+#     from matplotlib.patches import Ellipse
+#     import matplotlib as mpl
+#     import matplotlib.pyplot as plt
+
+#     import numpy as np
+
+#     v, w = np.linalg.eigh(covar)
+#     #order = v.argsort()[::-1]
+#     #v=v[order]
+#     #w=w[:,order]
+#     u = w[0] / np.linalg.norm(w[0])
+
+#     if ax is None:
+#         ax = plt.gca()
+
+#     # Plot an ellipse to show the Gaussian component
+#     angle = np.arctan(u[1] / u[0])
+#     angle = 180 * angle / np.pi  # convert to degrees
+#     ell = mpl.patches.Ellipse(mean, v[0], v[1], 180 + angle, color=color)
+#     ell.set_clip_box(splot.bbox)
+#     ell.set_alpha(0.5)
+#     ax.add_artist(ell)
+#     plt.draw()
+#     plt.show()
+#     plt.draw()
+
+#     ---
+#     theta = np.degrees(np.arctan2(*vecs[:,0][::-1]))
+
+#     kwrg = {'facecolor':fc, 'edgecolor':ec, 'alpha':a, 'linewidth':lw}
+
+#     # Width and height are "full" widths, not radius
+#     width, height = 2 * np.sqrt(chi2.ppf(volume,2)) * np.sqrt(vals)
+#     ellip = Ellipse(xy=pos, width=width, height=height, angle=theta, **kwrg)
+
+
+def latent_cluster_centers(SAMObject, X=None, labels=None, center='gaussian', plot=True, which_indices=(0,1), randSeed=None, ax=None):
+    """
+    Find centers for the clusters identified in param. labels for the latent space. Centers can be a gaussian density (so, mean and covar.)
+    or (not implemented yet) mean and median, as controlled by the param. center.
+    """
+    from sklearn import mixture
+
+    assert(labels is not None)
+
+    if X is None:
+        X = SAMObject._get_latent()
+
+    cluster_labels = np.unique(labels)
+    K = len(cluster_labels)
+    Q = X.shape[1]
+
+    cntr = np.zeros((K, Q))*np.nan
+    if center == 'gaussian':
+        covars = np.zeros((K, Q, Q))*np.nan
+    else:
+        covars = None
+
+    for i in range(K):
+        if center == 'gaussian':
+            g = mixture.GMM(covariance_type='full', init_params='wmc', min_covar=0.001,
+                            n_components=1, n_init=1, n_iter=300, params='wmc',
+                            random_state=randSeed, thresh=None, tol=0.001, verbose=0)
+            g.fit(X[labels == cluster_labels[i], :])
+            cntr[i, :] = g.means_
+            covars[i] = g.covars_
+        elif center == 'median':
+            raise NotImplementedError("This is not implemented yet")
+        elif center == 'mean':
+            raise NotImplementedError("This is not implemented yet")
+        else:
+            print('Not known center type')
+            raise
+
+    if plot:
+        color_iter = colors = cm.rainbow(np.linspace(0, 1, 20))
+        myperm = np.random.permutation(color_iter.shape[0])
+        color_iter = color_iter[myperm, :]
+        marker_iter = itertools.cycle((',', '+', '.', 'o', '*', 'v', 'x', '>'))
+        splot = pb.subplot(1, 1, 1)
+
+        for i, (color, marker) in enumerate(zip(color_iter,marker_iter)):
+            pb.scatter(X[labels == cluster_labels[i], which_indices[0]],
+                       X[labels == cluster_labels[i], which_indices[1]], s=40, color=color, marker=marker)
+
+            if i == K-1:
+                break
+        if ax is None:
+            ax = pb.gca()
+        for i in range(K):
+            util_plot_cov_ellipse(cntr[i, :], covars[i], ax=ax, which_indices=which_indices)
+    return cntr, covars
+
+##############################  TMP   ##############################################################
+    def familiarity_reverse(self, Ytest, ytrmean=None, ytrstd=None, source_view=0, max_iters=1000, num_inducing=15):
+        if Ytest is None:
+            if self.type == 'bgplvm':
+                tmpX = self.model.Y.values.copy()
+            elif self.type == 'mrd':
+                tmpX = self.model.bgplvms[source_view].Y.values.copy()
+            kernel = GPy.kern.RBF(tmpX.shape[1], ARD=False)+GPy.kern.Bias(tmpX.shape[1])
+            tmpY = self.model.X.mean.values.copy()
+            self.back_GP = GPy.models.SparseGPRegression(tmpX, tmpY, kernel=kernel, num_inducing=num_inducing)
+            self.back_GP.optimize(optimizer='bfgs', max_iters=max_iters, messages=1)
+            return (None,None)
+        else:
+            if ytrmean is not None:
+                Ytest -= ytrmean
+                Ytest /= ytrstd
+            return self.back_GP.predict(Ytest)
+
+    def familiarity3(self, Ytest, ytrmean=None, ytrstd=None):
+        assert(self.type == 'bgplvm')
+
+        import numpy as np
+        N = Ytest.shape[0]
+        if ytrmean is not None:
+            Ytest -= ytrmean
+            Ytest /= ytrstd
+
+        qx, mm = self.model.infer_newX(Ytest)
+        # Optional for more iters---
+        mm.optimize(max_iters=800)
+        # qx = mm.X
+
+        return mm._log_marginal_likelihood - self.model._log_marginal_likelihood
+
+    def familiarity2(self, Ytest, ytrmean = None, ytrstd=None, sigma2=None, use_uncert=True):
+        #def my_logpdf(y, ymean, yvar):
+        #    import numpy as np
+        #    N = y.shape[0]
+        #    ln_det_cov = N * np.log(yvar)
+        #    return -0.5 * (np.sum((y - ymean) ** 2 / yvar) + ln_det_cov + N * np.log(2. * np.pi))
+        #from scipy.stats import multivariate_normal
+        #var = multivariate_normal(mean=[0,0], cov=[[1,0],[0,1]])
+        #var.pdf([1,0])
+        from scipy.stats import lognorm
+
+        assert(self.type == 'bgplvm')
+
+        import numpy as np
+        N = Ytest.shape[0]
+        if ytrmean is not None:
+            Ytest -= ytrmean
+            Ytest /= ytrstd
+
+        qx, mm = self.model.infer_newX(Ytest)
+        # Optional for more iters---
+        mm.optimize(max_iters=400)
+        qx = mm.X
+        #----
+        
+        #ymean, yvar = model._raw_predict(qx)
+        # This causes the code to hang!!! Replace qx with qx.mean.values...!!!!
+        if use_uncert:
+            ymean, yvar = self.model.predict(qx)
+        else:
+            ymean,yvar = self.model.predict(qx.mean.values)
+        ll = np.zeros(N)
+        for j in range(N):
+            #ll[j] = my_logpdf(Ytest[j], ymean[j], yvar[j])
+            #ll[j] = multivariate_normal(mean=ymean[j], cov=np.diag(yvar[j])).pdf(Ytest[j])
+            ll[j] = lognorm.pdf(Ytest[j], s=1, loc=ymean[j], scale=yvar[j]).mean()
+        loglike = ll.mean()
+
+        return loglike
+##############################  TMP   ##############################################################
+
+    def _get_inducing(self):
+        # TODO
+        pass

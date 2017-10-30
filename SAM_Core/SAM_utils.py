@@ -9,8 +9,8 @@
 # @authors: Andreas Damianou, Daniel Camilleri
 #
 # """"""""""""""""""""""""""""""""""""""""""""""
-import matplotlib
-matplotlib.use("TkAgg")
+# import matplotlib
+# matplotlib.use("TkAgg")
 import numpy as np
 from ConfigParser import SafeConfigParser
 import pickle
@@ -20,6 +20,10 @@ from SAM.SAM_Core import samOptimiser
 from os import listdir
 from os.path import join, isdir
 import threading
+import os
+import subprocess
+import time
+import ipyparallel as ipp
 import logging
 
 np.set_printoptions(precision=2)
@@ -29,7 +33,7 @@ np.set_printoptions(precision=2)
 ## \ingroup icubclient_SAM_source
 
 
-def initialiseModels(argv, update, initMode='training'):
+def initialiseModels(argv, update, initMode='training', drawLatent=False):
     """Initialise SAM Model data structure, training parameters and user parameters.
 
         This method starts by initialising the required Driver from the driver name in argv[3] if it exists
@@ -89,6 +93,7 @@ def initialiseModels(argv, update, initMode='training'):
     logging.info('-------------------')
     logging.info('Loading Parameters...')
     logging.info('')
+    temporalFlag = False
     modeConfig = ''
     found = ''
     try:
@@ -267,10 +272,15 @@ def initialiseModels(argv, update, initMode='training'):
 
     mySAMpy.save_model = False
     mySAMpy.economy_save = True
-    mySAMpy.visualise_output = False
+    mySAMpy.visualise_output = drawLatent
     # test_mode = True
 
     mySAMpy.readData(dataPath, participantList)
+    # at this point, all the data that will be eventually used for training is contained in mySAMpy.Y
+    # and mySAMpy.L contains all labels if any (depending on mrd model or bgplvm model)
+    # mySAMpy.L is a list of labels while mySAMpy.Y is a numpy array of data
+    # mySAMpy.Y should have 2 dimensions, length of dimension 0 = number of instances
+    # length of dimension 1 = length of feature vector
 
     if mySAMpy.model_mode != 'temporal':
         # get list of labels
@@ -492,6 +502,7 @@ def plotKnownAndUnknown(varDict, colour, axlist, width=[0.2, 0.2], factor=[(0, 0
     return axlist
 
 
+# TODO extend method to multivariate gaussians
 def bhattacharyya_distance(mu1, mu2, var1, var2):
     """
         Calculates a measure for the separability of two univariate gaussians.
@@ -706,7 +717,9 @@ def smooth1D(x, window_len=11, window='hanning'):
         window: The type of window from 'flat', 'hanning', 'hamming', 'bartlett', 'blackman' flat window will produce a moving average smoothing.
 
     output:
-        The smoothed signal.
+        The smoothed signal
+
+    NOTE: length(output) != length(input), to correct this: return y[(window_len/2-1):-(window_len/2)] instead of just y.
     """
 
     if x.ndim != 1:
@@ -783,5 +796,297 @@ def transformTimeSeriesToSeq(Y, timeWindow, offset=1, normalised=False, reduced=
         if not noY:
             Ynew[i, :] = Y[base + timeWindow, :]
     return X, Ynew
+
+
+def transformSeqToTimeSeries(X, Y, timeWindow):
+    assert (X.shape[0] == Y.shape[0])
+    N = X.shape[0] + timeWindow
+    D = X.shape[1] / (timeWindow * 1.0)
+    Ynew = np.zeros((N, D))
+    for i in range(X.shape[0]):
+        Ynew[i:i + timeWindow, :] = X[i, :].reshape(D, timeWindow).T
+    Ynew[-1, :] = Y[-1, :]
+    return Ynew
+
+
+def test_transformSeries(Y, timeWindow):
+    (xx, yy) = transformTimeSeriesToSeq(Y, timeWindow)
+    return transformSeqToTimeSeries(xx, yy, timeWindow)
+
+
+def gp_narx(m, x_start, N, Uts, ws, Ydebug=None):
+    # m is a GP model from GPy.
+
+    D = m.output_dim
+    Q = x_start.shape[1]
+    Y = np.empty((N, D,))
+    Y[:] = np.NAN
+    varY = Y.copy()
+    assert (Q % ws == 0)
+    assert (D == Q / ws)
+
+    Xnew = m.X.copy()
+    Ynew = m.Y.copy()
+
+    curX = x_start
+
+    varYpred = None
+
+    for i in range(N):
+        # Make sure the added x_add is a matrix (1,Q) and not (Q,)
+        if len(curX.shape) < 2:
+            curX = curX.reshape(1, curX.shape[0])
+        varYpred_prev = varYpred
+        # Ypred, varYpred = m._raw_predict(np.hstack((curX,curU)))
+        # curU = Uts[i,:]
+        # Ypred, varYpred = m._raw_predict(np.hstack((curX,Uts[i,:][None,:])))
+        if Uts is not None:
+            Ypred, varYpred = m.predict(np.hstack((curX, Uts[i, :][None, :])))
+        else:
+            Ypred, varYpred = m.predict(curX)
+
+        Y[i, :] = Ypred
+        varY[i, :] = varYpred
+
+        # logging.info((i, ': ', Y[i,:] , ' | var: ', varYpred)  #####
+
+        if Ydebug is not None:
+            if Uts is not None:
+                logging.info(i + ': X=' + str(curX.flatten()) + 'U=' + str(Uts[i, :].flatten()) +
+                             'Y=' + str(Ydebug[i, :]))
+            else:
+                logging.info(i + ': X=' + str(curX.flatten()) + 'U=None' + 'Y=' + str(Ydebug[i, :]))
+
+        if i == N - 1:
+            break
+
+        curX = np.hstack((curX[0, D:], Ypred[0, :]))
+
+    return Y, varY
+
+
+def random_data_split(Y, percentage=[0.5, 0.5]):
+    N = Y.shape[0]
+    N_1 = np.ceil(N*percentage[0])
+    N_2 = np.floor(N*percentage[1])
+    assert(N==N_1+N_2)
+    perm = np.random.permutation(N)
+    inds_1 = perm[0:N_1]
+    inds_2 = perm[N_1:N_1+N_2]
+    return Y[inds_1, :], Y[inds_2, :], inds_1, inds_2
+
+
+class SURFProcessor:
+    def __init__(self, imgHNew, imgWNew,n_clusters=20, SURFthresh=500, crop_thresholds=(40, 160, 40, 160), magnify=1):
+        self.imgHNew = imgHNew
+        self.imgWNew = imgWNew
+        self.n_clusters = n_clusters
+        self.SURFthresh = SURFthresh
+        self.crop_thresholds = crop_thresholds
+        self.magnify = magnify # Magnify photos (scale up) before extracting SURF
+
+        self._is_trained = False
+
+    def _find_surf(self,Y,thresh=None,h=None,w=None,limits=None,magnify=None):
+        import sys
+        if thresh is None: thresh=self.SURFthresh
+        if h is None: h = self.imgHNew
+        if w is None: w = self.imgWNew
+        if limits is None: limits = self.crop_thresholds
+        if magnify is None: magnify = self.magnify
+
+        logging.info('# Finding SURF features from ' + str(Y.shape[0]) + ' images...')
+        sys.stdout.flush()
+        import cv2
+        surf = cv2.SURF(thresh)
+        descriptors = []
+        desclabels = []
+        for i in range(Y.shape[0]):
+            if magnify is not 1:
+                y_tmp = cv2.resize(Y[i,:].reshape(h,w),(h*magnify,w*magnify)).flatten()
+                kp, des = surf.detectAndCompute(np.uint8(y_tmp.reshape(h*magnify, w*magnify)),None)
+            else:
+                y_tmp = Y[i,:]
+                kp, des = surf.detectAndCompute(np.uint8(y_tmp.reshape(h, w)),None)
+
+            for j in range(len(kp)):
+                if (limits is not None) and (kp[j].pt[0] < limits[0] or kp[j].pt[0]>limits[1] or kp[j].pt[1] < limits[2] or kp[j].pt[1]>limits[3]):
+                    continue
+                desclabels.append(i)
+                descriptors.append(des[j])
+
+        descriptors = np.array(descriptors)
+        desclabels = np.array(desclabels)
+        logging.info(' Found ' + str(len(desclabels)) + ' features.')
+        return descriptors, desclabels
+
+    def _make_BoW(self,N, c_trainPredict, desclabels, n_clusters=None):
+        if n_clusters is None: n_clusters = self.n_clusters
+        logging.info('# Making BoW...')
+        features = []
+        for i in range(N):
+            feature_counts = c_trainPredict[desclabels==i]
+            feature_vector = np.zeros(n_clusters)
+            for j in range(n_clusters):
+                feature_vector[j] = np.where(feature_counts==j)[0].shape[0]
+            features.append(feature_vector)
+
+        return np.sqrt(np.array(features))
+
+    def make_SURF_BoW(self, Y, normalize=True,imgHNew=None, imgWNew=None, n_clusters=None, SURFthresh=None, crop_thresholds=None):
+        if imgHNew is None: imgHNew = self.imgHNew;
+        if imgWNew is None: imgWNew = self.imgWNew;
+        if n_clusters is None: n_clusters = self.n_clusters
+        if SURFthresh is None: SURFthresh = self.SURFthresh
+        if crop_thresholds is None: crop_thresholds = self.crop_thresholds
+        self.normalize = normalize
+
+        from sklearn.cluster import KMeans
+        from scipy.spatial import distance
+
+        #### APPROACH 1: Bag of feature approach:
+        # Cluster all descriptors (for each image) and then replace each image with a histogram
+        # saying how many descriptors it has that fall in cluster K. So, K dimensional feature vec.
+        
+        # Thresh to exclude corners...
+
+        ## TRAINING DATA
+        descriptors, desclabels = self._find_surf(Y,SURFthresh,imgHNew, imgWNew,crop_thresholds)
+
+        # Agglomeratice only: Define the structure A of the data. Here a 10 nearest neighbors
+        #from sklearn.neighbors import kneighbors_graph
+        #connectivity = kneighbors_graph(descriptors, n_neighbors=10, include_self=False)
+
+        # Compute clustering
+        #ward = AgglomerativeClustering(n_clusters=n_clusters, connectivity=connectivity,linkage='ward',compute_full_tree=True).fit(descriptors)
+        #Y_ = ward.labels_
+
+        c = KMeans(n_clusters=n_clusters, max_iter=10000,random_state=1)
+
+        c_trainFit = c.fit(descriptors)
+        c_trainPredict = c_trainFit.predict(descriptors)
+
+        #Equiv:
+        #c = KMeans(n_clusters=n_clusters, max_iter=2000,random_state=1)
+        #c_trainFitPredict=c.fit_predict(descriptors)
+
+        #plt.plot(c_trainPredict, 'x')
+        Z = self._make_BoW(Y.shape[0], c_trainPredict, desclabels, n_clusters)
+        self.c_trainFit = c_trainFit
+
+        #plt.matshow(Z);  plt.colorbar(); plt.gca().set_aspect('normal');plt.draw()
+        #plt.matshow(mySAMpy.L);  plt.gca().set_aspect('normal');plt.draw()
+
+        if normalize:
+            Zmean = Z.mean()
+            Zn = Z - Zmean
+            Zstd = Zn.std()
+            Zn /= Zstd
+            self.Zmean = Zmean
+            self.Zstd = Zstd
+            Z = Zn
+
+        self._is_trained = True
+        return Z.copy(), descriptors, desclabels, c_trainFit
+
+    def make_SURF_BoW_test(self,Ytest):
+        # SURF for test data
+        assert self._is_trained, "First you have to do a train BoW."
+        descriptors, desclabels = self._find_surf(Ytest)
+        c_testPredict = self.c_trainFit.predict(descriptors)
+        Ztest = self._make_BoW(Ytest.shape[0], c_testPredict, desclabels, self.n_clusters)
+        if self.normalize:
+            Ztestn = Ztest - self.Zmean
+            Ztestn /= self.Zstd
+            Ztest = Ztest
+
+        return Ztest.copy()
+
+
+def RepresentsInt(s):
+    try:
+        int(s)
+        return True
+    except ValueError:
+        return False
+
+
+class ipyClusterManager:
+    def __init__(self, nodesDict, controllerIP, devnull, totalControl=True):
+        self.expectedProcessors = 0
+        self.actualProcessors = 0
+        self.totalControl = totalControl
+        self.controllerProc = []
+        self.nodesDict = nodesDict
+        self.controllerIP = controllerIP
+        self.devnull = devnull
+
+    def startCluster(self):
+        try:
+            self.controllerProc.append(
+                subprocess.Popen(["ipcontroller", '--ip=' + self.controllerIP], stdout=self.devnull))
+            for j in self.nodesDict.keys():
+                if j != 'localhost':
+                    cmd = 'scp ~/.ipython/profile_default/security/ipcontroller-engine.json ' + j + ':./'
+                    os.system(cmd)
+                    time.sleep(5)
+
+            for j in self.nodesDict.keys():
+                logging.info(str(j))
+                if j != 'localhost':
+                    if self.totalControl:
+                        cmd = ['ssh', j, 'ipengine', '--file=~/ipcontroller-engine.json', '&']
+                    else:
+                        cmd = 'ssh ' + j + ' ipengine --file=~/ipcontroller-engine.json &'
+                else:
+                    if self.totalControl:
+                        cmd = ['ipengine', '&']
+                    else:
+                        cmd = 'ipengine &'
+
+                for n in range(self.nodesDict[j]):
+                    self.expectedProcessors += 1
+                    logging.info('\t' + ' '.join(cmd))
+                    if self.totalControl:
+                        self.controllerProc.append(subprocess.Popen(cmd, stdout=self.devnull))
+                    else:
+                        os.system(cmd)
+                    time.sleep(2)
+
+            logging.info('Waiting for engines to start')
+            time.sleep(max(self.expectedProcessors, 10))
+            success = True
+            try:
+                c = ipp.Client()
+                self.actualProcessors = len(c._engines)
+                c.close()
+                del c
+                logging.info('Controller started correctly')
+            except:
+                success = False
+                self.terminateProcesses()
+                logging.error('Controller failure')
+
+            if self.actualProcessors == 0:
+                success = False
+                logging.error('Complete engine failure')
+            else:
+                logging.info('Engines started correctly')
+        except:
+            success = False
+            self.terminateProcesses()
+            logging.error('Failed to initialise controller')
+
+        return success
+
+    def terminateProcesses(self):
+        for j in self.controllerProc:
+            try:
+                j.kill()
+                j.wait()
+            except:
+                pass
+            time.sleep(0.2)
+        self.actualProcessors = 0
 
 ## @}
