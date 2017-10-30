@@ -14,9 +14,9 @@ from os.path import isfile, join
 import copy
 import numpy
 import numpy as np
-from SAM.SAM_Core import SAMDriver
-from SAM.SAM_Core import SAMTesting
-from SAM.SAM_Core import SAM_utils as utils
+from SAM_Core import SAMDriver
+from SAM_Core import SAMTesting
+from SAM_Core import SAM_utils as utils
 import logging
 np.set_printoptions(threshold=numpy.nan)
 

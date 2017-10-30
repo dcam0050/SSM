@@ -16,9 +16,9 @@ import warnings
 import sys
 import numpy
 import numpy as np
-from SAM.SAM_Core import SAMCore
-from SAM.SAM_Core import SAMTesting
-from SAM.SAM_Core.SAM_utils import initialiseModels
+from SAM_Core import SAMCore
+from SAM_Core import SAMTesting
+from SAM_Core.SAM_utils import initialiseModels
 import logging
 import os
 from os.path import join

@@ -2,7 +2,6 @@
 import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
-import SAM
 import sys
 import subprocess
 import os
@@ -17,7 +16,7 @@ import pickle
 import readline
 import yarp
 from ConfigParser import SafeConfigParser
-import SAM.SAM_Core.SAM_utils as utils
+import SAM_Core.SAM_utils as utils
 import logging
 import copy
 
@@ -216,7 +215,7 @@ class SamSupervisorModule(yarp.RFModule):
             self.modelPath = self.rootPath + '/Models'
             self.dataPath = self.rootPath + '/Data' 
             
-            self.trainingFunctionsPath = SAM.SAM_Drivers.__path__
+            self.trainingFunctionsPath = SAM_Drivers.__path__
             self.trainingListHandles = dict()
             self.loadedListHandles = dict()
             self.iter = 0
