@@ -147,7 +147,7 @@ class SamSupervisorModule(yarp.RFModule):
         proc.wait()
         del proc
 
-        if output != '':
+        if "Cannot connect to port" not in output:
             logging.error('samSupervisor already running. /sam/rpc:i port present')
             return False
 
