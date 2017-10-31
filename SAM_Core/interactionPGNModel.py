@@ -2,7 +2,7 @@
 import matplotlib.pyplot as plt
 import sys
 import time
-from SAM.SAM_Core import SAM_utils
+from SAM_Core import SAM_utils
 import readline
 import warnings
 from pgmpy.models import BayesianModel

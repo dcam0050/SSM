@@ -2,7 +2,7 @@
 
 import sys
 import time
-from SAM.SAM_Core.SAM_utils import timeout
+from SAM_Core.SAM_utils import timeout
 import warnings
 from os.path import join
 import os

@@ -13,8 +13,8 @@
 # @authors: Andreas Damianou, Uriel Martinez, Luke Boorman, Daniel Camilleri
 #
 # """"""""""""""""""""""""""""""""""""""""""""""
-from SAM.SAM_Core import SAMCore
-from SAM.SAM_Core import SAMTesting
+from SAM_Core import SAMCore
+from SAM_Core import SAMTesting
 import GPy
 import numpy
 import os
@@ -88,6 +88,7 @@ class SAMDriver:
         self.model_init_iterations = 0
 
         self.additionalParametersList = []
+
 
     def loadParameters(self, parser, trainName):
         """

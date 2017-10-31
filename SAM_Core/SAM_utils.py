@@ -9,14 +9,14 @@
 # @authors: Andreas Damianou, Daniel Camilleri
 #
 # """"""""""""""""""""""""""""""""""""""""""""""
-# import matplotlib
-# matplotlib.use("TkAgg")
+import matplotlib
+matplotlib.use("TkAgg")
 import numpy as np
 from ConfigParser import SafeConfigParser
 import pickle
 import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
-from SAM.SAM_Core import samOptimiser
+from SAM_Core import samOptimiser
 from os import listdir
 from os.path import join, isdir
 import threading
