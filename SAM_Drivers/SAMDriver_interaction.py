@@ -15,8 +15,8 @@ import os
 import cv2
 import readline
 import yarp
-from SAM_Core import SAMDriver
-from SAM_Core import SAMTesting
+from SAM.SAM_Core import SAMDriver
+from SAM.SAM_Core import SAMTesting
 import logging
 import copy
 
@@ -82,6 +82,16 @@ class SAMDriver_interaction(SAMDriver):
             self.paramsDict['pose_selection'] = int(parser.get(trainName, 'pose_selection'))
         else:
             self.paramsDict['pose_selection'] = 0
+
+        if parser.has_option(trainName, 'numBins'):
+            self.paramsDict['numBins'] = int(parser.get(trainName, 'numBins'))
+        else:
+            self.paramsDict['numBins'] = 10
+
+        if parser.has_option(trainName, 'useBinWidth'):
+            self.paramsDict['useBinWidth'] = parser.get(trainName, 'useBinWidth') == 'True'
+        else:
+            self.paramsDict['useBinWidth'] = True
 
         if parser.has_option(trainName, 'binWidth'):
             self.paramsDict['binWidth'] = float(parser.get(trainName, 'binWidth'))

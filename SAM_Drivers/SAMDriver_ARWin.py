@@ -14,9 +14,9 @@ from os.path import isfile, join
 import copy
 import numpy
 import numpy as np
-from SAM_Core import SAMDriver
-from SAM_Core import SAMTesting
-from SAM_Core import SAM_utils as utils
+from SAM.SAM_Core import SAMDriver
+from SAM.SAM_Core import SAMTesting
+from SAM.SAM_Core import SAM_utils as utils
 import logging
 np.set_printoptions(threshold=numpy.nan)
 
@@ -89,6 +89,16 @@ class SAMDriver_ARWin(SAMDriver):
             self.paramsDict['moveThresh'] = float(parser.get(trainName, 'moveThresh'))
         else:
             self.paramsDict['moveThresh'] = 0.01
+
+        if parser.has_option(trainName, 'numBins'):
+            self.paramsDict['numBins'] = int(parser.get(trainName, 'numBins'))
+        else:
+            self.paramsDict['numBins'] = 10
+
+        if parser.has_option(trainName, 'useBinWidth'):
+            self.paramsDict['useBinWidth'] = parser.get(trainName, 'useBinWidth') == 'True'
+        else:
+            self.paramsDict['useBinWidth'] = True
 
         if parser.has_option(trainName, 'binWidth'):
             self.paramsDict['binWidth'] = float(parser.get(trainName, 'binWidth'))

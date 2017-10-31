@@ -27,6 +27,6 @@ from . import SAM_Core
 from . import SAM_Drivers
 ## @}
 
-pb.ion()
+# plt.ion()
 
 default_seed = 123344

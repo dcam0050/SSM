@@ -12,7 +12,7 @@
 # """"""""""""""""""""""""""""""""""""""""""""""
 from IPython.display import clear_output
 from sklearn.mixture import GMM
-from SAM_Core import SAM_utils as utils
+from SAM.SAM_Core import SAM_utils as utils
 import ipyparallel as ipp
 import time
 import matplotlib
@@ -175,10 +175,21 @@ def calibrateSingleModelRecall(thisModel):
         thisModel[0].classificationDict['binWidth'] = thisModel[0].paramsDict['binWidth']
         thisModel[0].classificationDict['method'] = thisModel[0].paramsDict['method']
 
-        numBins = np.ceil(np.max(varianceAllArray) / thisModel[0].classificationDict['binWidth'])
+        if thisModel[0].paramsDict['useBinWidth']:
+            numBins = np.ceil(np.max(varianceAllArray) / thisModel[0].classificationDict['binWidth'])
+            if numBins < 10:
+                numBins = 10
+                mul_factor = np.max(varianceAllArray) - np.min(varianceAllArray) / 10
+            else:
+                mul_factor = thisModel[0].classificationDict['binWidth']
+        else:
+            numBins = thisModel[0].paramsDict['numBins']
+            mul_factor = (np.max(varianceAllArray) - np.min(varianceAllArray)) / numBins
+            thisModel[0].classificationDict['binWidth'] = mul_factor
+            # numBins = int(np.ceil(np.max(varianceAllArray) / thisModel[0].classificationDict['binWidth']))
 
         bins = range(int(numBins))
-        bins = np.multiply(bins, thisModel[0].classificationDict['binWidth'])
+        bins = np.multiply(bins, mul_factor)
 
         for j in range(len(variancesKnown[0]) - 2):
             histKnown[j], binEdges[j] = np.histogram(variancesKnownArray[:, j], bins=bins)
@@ -190,7 +201,6 @@ def calibrateSingleModelRecall(thisModel):
         thisModel[0].classificationDict['histKnown'] = histKnown
         thisModel[0].classificationDict['binEdgesKnown'] = binEdges
         thisModel[0].classificationDict['histUnknown'] = histUnknown
-
     thisModel[0].calibrated = True
 
 
