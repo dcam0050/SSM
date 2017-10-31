@@ -470,7 +470,8 @@ class interactionSAMModel(yarp.RFModule):
             if self.collectionMethod == 'buffered':
                 if self.modelLoaded:
                     logging.debug('going in process live')
-                    self.latentPlots['ax'], _ = self.mm[0].SAMObject.visualise(plot_scales=True)
+                    if self.drawLatent:
+                        self.latentPlots['ax'], _ = self.mm[0].SAMObject.visualise(plot_scales=True)
                     thisClass, probClass, dataList = self.mm[0].processLiveData(self.dataList, self.mm,
                                                                                 verbose=self.verboseSetting,
                                                                                 additionalData=self.additionalInfoDict,
@@ -587,7 +588,8 @@ class interactionSAMModel(yarp.RFModule):
                 for j in range(self.bufferSize):
                     self.dataList.append(self.readFrame())
                 if self.modelLoaded:
-                    self.latentPlots['ax'], _ = self.mm[0].SAMObject.visualise(plot_scales=True)
+                    if self.drawLatent:
+                        self.latentPlots['ax'], _ = self.mm[0].SAMObject.visualise(plot_scales=True)
                     thisClass, probClass, dataList = self.mm[0].processLiveData(self.dataList, self.mm,
                                                                                 verbose=self.verboseSetting,
                                                                                 additionalData=self.additionalInfoDict,
@@ -793,7 +795,8 @@ class interactionSAMModel(yarp.RFModule):
             # process list of frames for a classification
             dataList = []
             if self.modelLoaded:
-                self.latentPlots['ax'], _ = self.mm[0].SAMObject.visualise(plot_scales=True)
+                if self.drawLatent:
+                    self.latentPlots['ax'], _ = self.mm[0].SAMObject.visualise(plot_scales=True)
                 thisClass, probClass, dataList = self.mm[0].processLiveData(self.dataList, self.mm,
                                                                             verbose=self.verboseSetting,
                                                                             additionalData=self.additionalInfoDict,

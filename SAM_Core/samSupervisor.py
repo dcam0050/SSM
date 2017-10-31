@@ -147,9 +147,9 @@ class SamSupervisorModule(yarp.RFModule):
         proc.wait()
         del proc
 
-        if "Cannot connect to port" not in output:
-            logging.error('samSupervisor already running. /sam/rpc:i port present')
-            return False
+        # if "Cannot connect to port" not in output or "could not find port" in output:
+        #     logging.error('samSupervisor already running. /sam/rpc:i port present')
+        #     return False
 
         rootPath = rf.check("root_path")
         interactionConfPath = rf.check("config_path")
@@ -651,7 +651,7 @@ class SamSupervisorModule(yarp.RFModule):
             #     reply.addString(repStr)
         return True
 
-    @utils.timeout(10)
+    @utils.timeout(30)
     def forwardCommand(self, command, reply):
         """
             Helper function to forward a call sign  to the respective model with an enforced timeout of 10 seconds for the reply so the module does not hang.
