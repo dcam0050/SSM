@@ -3,7 +3,6 @@
 import matplotlib
 matplotlib.use("agg")
 import matplotlib.pyplot as plt
-# import pylab as plt
 import sys
 import time
 from ConfigParser import SafeConfigParser
@@ -601,6 +600,9 @@ class interactionSAMModel(yarp.RFModule):
                     thisClass = None
 
                 if thisClass is None or dataList is None:
+                    logging.info('thisClass or dataList returned None')
+                    logging.debug('thisClass: ' + str(type(thisClass)) + ' ' + str(thisClass))
+                    logging.debug('dataList: ' + str(type(dataList)) + ' ' + str(dataList))
                     reply.addString('nack')
                 else:
                     reply.addString('ack')

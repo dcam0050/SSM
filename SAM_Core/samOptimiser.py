@@ -20,18 +20,41 @@ import sys
 import glob
 import shutil
 import copy
+import logging
+from os.path import isfile, join, isdir
 from ConfigParser import SafeConfigParser
 np.set_printoptions(precision=2)
 
 optNotFound = False
 try:
     import GPyOpt
-except:
-    print 'GPyOpt not found'
+except ImportError:
+    print('GPyOpt not found')
     optNotFound = True
     pass
 
 ## @ingroup icubclient_SAM_Core
+
+
+def exception_hook(exc_type, exc_value, exc_traceback):
+    """Callback function to record any errors that occur in the log files.
+
+        Documentation:
+            Substitutes the standard python exception_hook with one that records the error into a log file. Can only work if trainSAMModel.py is called from python and not ipython because ipython overrides this substitution.
+
+        Args:
+            exc_type: Exception Type.
+            exc_value: Exception Value.
+            exc_traceback: Exception Traceback.
+
+        Returns:
+            None
+    """
+    logging.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+sys.excepthook = exception_hook
+
+
 class modelOptClass(object):
     """
         Class to perform optimisation of SAM Models.
@@ -106,7 +129,6 @@ class modelOptClass(object):
             None
         """
         try:
-            import GPyOpt
             self.fName = fName
             self.dataDir = dataDir
             self.modelDir = modelDir
@@ -134,10 +156,10 @@ class modelOptClass(object):
             self.resultsList = []
             self.currFiles = None
             self.configured = self.configOptimisation()
-            print self.configured[1]
+            logging.info(self.configured[1])
         except:
             msg = 'Cannot find GPyOpt package. Make sure it is installed and added to PYTHONPATH'
-            print msg
+            logging.error(msg)
             self.configured = [False, msg]
 
     def configOptimisation(self):
@@ -187,10 +209,10 @@ class modelOptClass(object):
                                 self.copyModel('best', 'normal')
                                 self.bestOptions = copy.deepcopy(self.parser.items(self.baseName))
                             else:
-                                print 'No model present'
+                                logging.warning('No model present')
                                 self.bestError = self.penalty
                         except:
-                            print 'testConf key not present in .pickle file'
+                            logging.warning('testConf key not present in .pickle file')
                             self.bestError = self.penalty
 
                         # iterate over keys of sectionOpt to create domain of optimisation problem
@@ -268,15 +290,14 @@ class modelOptClass(object):
                                     self.numPossibilities *= len(splitList)
                                     self.domain.append(tempDict)
                             else:
-                                print 'ignoring ', i
+                                logging.info('ignoring ' + str(i))
 
                         # if armedBanditsMode :
                         #     for j in self.domain:
                         #         j['type'] = 'bandit'
 
                         for j in self.domain:
-                            print j
-                            print
+                            logging.info(str(j) + '/n')
 
                         return [True, 'Optimisation configuration ready']
                 else:
@@ -301,10 +322,9 @@ class modelOptClass(object):
              Total error for the current training parameters. Error is the weighted sum total of the confusion matrix created during testing of the model as part of training.
         """
         self.numEvals += 1
-        print 'Trial ', self.numEvals, 'out of', self.numPossibilities, 'possibilities'
+        logging.info('Trial ' + str(self.numEvals) + 'out of' + str(self.numPossibilities) + 'possibilities')
         for j in range(len(x[0])):
-            print self.domain[j]['name'], ' : ', x[0][j]
-        print
+            logging.info(str(self.domain[j]['name']) + ' : ' + str(x[0][j]) + '/n')
         self.currIterSettings = self.sectionBackup
         combinationDicts = dict()
         for j in range(len(x[0])):
@@ -351,7 +371,7 @@ class modelOptClass(object):
             command = "bash -c \"" + cmd + "\""
 
         if self.verbose:
-            print 'cmd: ', cmd
+            logging.info('cmd: ' + str(cmd))
 
         # if self.windowed:
         deleteModel(self.modelDir, 'exp')
@@ -369,11 +389,11 @@ class modelOptClass(object):
             cnt += 1
             if cnt > 5:
                 totalTime += 1
-                print 'Training ...', totalTime * 0.5, 'minutes elapsed'
+                logging.info('Training ...' + str(totalTime * 0.5) + 'minutes elapsed')
                 cnt = 0
 
         currError = 0
-        print 'poll return:', ret
+        logging.info('poll return:' + str(ret))
         # if len(self.currFiles) == 0:
         #     self.modelPresent = self.copyModel('backup', 'normal')
         #     self.copyModel('best', 'normal')
@@ -383,17 +403,16 @@ class modelOptClass(object):
                 if '.pickle' in j and '__L' not in j:
                     modelPickle = pickle.load(open(j, 'rb'))
                     testConf = modelPickle['overallPerformance']
-                    print 'Confusion Matrix: ', testConf
+                    logging.info('Confusion Matrix: ' + str(testConf))
                     np.fill_diagonal(testConf, 0)
                     # introduce a factor to give favour to specific classifications
                     factorMat = np.ones(testConf.shape)
                     factorMat[:-1, -1] = 0.5
-                    print 'factorMat', factorMat
-                    print 'testConf', testConf
-                    print 'modified', testConf*factorMat
+                    logging.info('factorMat' + str(factorMat))
+                    logging.info('testConf' + str(testConf))
+                    logging.info('modified' + str(testConf*factorMat))
                     currError += np.sum(testConf*factorMat)
-                    print
-                    print 'Current cumulative error: ', currError
+                    logging.info('/nCurrent cumulative error: ' + str(currError))
                     if currError < self.bestError:
                         deleteModel(self.modelDir, 'best')
                         self.bestError = currError
@@ -403,12 +422,9 @@ class modelOptClass(object):
 
         else:
             currError = self.penalty
-            print 'Error training model'
-            print 'Current cumulative error: ', currError
-
-        print 'Best Error so far : ', self.bestError
-        print
-        print '-----------------------------------------------------'
+            logging.warning('Error training model')
+            logging.info('Current cumulative error: ' + str(currError))
+        logging.info('Best Error so far : ' + str(self.bestError) + '/n/n-----------------------------------------------------')
         self.resultsList.append([x, currError])
         return currError
 
@@ -424,12 +440,12 @@ class modelOptClass(object):
             True of False indicating success.
         """
         if os.path.isfile(self.modelDir):
-            print self.modelDir, ' model file present'
+            logging.info(str(self.modelDir) + ' model file present')
             self.currFiles = [j for j in glob.glob('__'.join(self.modelDir.split('__')[:3]) + '*')
                               if 'backup' not in j and 'best' not in j]
             backupFiles = []
             for k in self.currFiles:
-                print 'Original: ', k
+                logging.info('Original: ' + str(k))
                 temp = k.split('exp')
                 if '__L' in k:
                     temp2 = temp[1].split('__')
@@ -440,8 +456,7 @@ class modelOptClass(object):
                         backupFiles += [temp[0] + newName + '_model.' + temp2[1]]
                     else:
                         backupFiles += [temp[0] + newName + '.' + temp2[1]]
-                print 'New:     ', backupFiles[-1]
-                print
+                logging.info('New:     ' + backupFiles[-1] + '/n')
 
             if direction == 'reverse':
                 for j in range(len(backupFiles)):
@@ -451,7 +466,7 @@ class modelOptClass(object):
                     shutil.copyfile(self.currFiles[j], backupFiles[j])
             return True
         else:
-            print 'No model present'
+            logging.warning('No model present')
             self.currFiles = []
             return False
 
@@ -469,7 +484,7 @@ def deleteModel(modelDir, newName):
 
     """
     if os.path.isfile(modelDir):
-        print modelDir, ' model file present'
+        logging.info(modelDir + ' model file present')
         fileList = [j for j in glob.glob('__'.join(modelDir.split('__')[:3]) + '*') if newName in j]
         for k in fileList:
             os.remove(k)
@@ -484,8 +499,34 @@ def main():
         Returns:
             0 if completed successfully. -1 if completed unsuccessfully.
     """
+    baseLogFileName='samOptimiserErrorLog'
+    rootPath = sys.argv[2]
+    file_i = 0
+    loggerFName = join(rootPath, baseLogFileName + '_' + str(file_i) + '.log')
+
+    # check if file exists
+    while os.path.isfile(loggerFName) and os.path.getsize(loggerFName) > 0:
+        loggerFName = join(rootPath, baseLogFileName + '_' + str(file_i) + '.log')
+        file_i += 1
+
+    logFormatter = logging.Formatter("%(asctime)s [%(name)-33s] [%(levelname)8s]  %(message)s")
+
+    rootLogger = logging.getLogger('samSupervisor')
+    rootLogger.setLevel(logging.DEBUG)
+
+    fileHandler = logging.FileHandler(loggerFName)
+    fileHandler.setFormatter(logFormatter)
+    rootLogger.addHandler(fileHandler)
+
+    consoleHandler = logging.StreamHandler()
+    consoleHandler.setFormatter(logFormatter)
+    rootLogger.addHandler(consoleHandler)
+    logging.root = rootLogger
+
+    logging.info(loggerFName)
+
     # Initialisation parameters:
-    print optNotFound,  ' ', len(sys.argv)
+    logging.info(str(optNotFound) + ' ' + str(len(sys.argv)))
     if len(sys.argv) >= 9 and not optNotFound:
         a = sys.argv[1]
         b = sys.argv[2]
@@ -529,7 +570,7 @@ def main():
         else:
             return -1
     else:
-        print 'GPyOpt package not found or incorrect number of arguments'
+        logging.error('GPyOpt package not found or incorrect number of arguments')
         return -1
 
 if __name__ == '__main__':

@@ -9,8 +9,6 @@
 # @authors: Andreas Damianou, Daniel Camilleri
 #
 # """"""""""""""""""""""""""""""""""""""""""""""
-# import matplotlib
-# matplotlib.use("TkAgg")
 import numpy as np
 from ConfigParser import SafeConfigParser
 import pickle
@@ -706,7 +704,9 @@ def smooth1D(x, window_len=11, window='hanning'):
         window: The type of window from 'flat', 'hanning', 'hamming', 'bartlett', 'blackman' flat window will produce a moving average smoothing.
 
     output:
-        The smoothed signal.
+        The smoothed signal
+
+    NOTE: length(output) != length(input), to correct this: return y[(window_len/2-1):-(window_len/2)] instead of just y.
     """
 
     if x.ndim != 1:
