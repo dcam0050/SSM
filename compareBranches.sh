@@ -1,5 +1,4 @@
 #!/bin/bash
-echo $1
 branch_name="$(git symbolic-ref HEAD 2>/dev/null)" ||
 branch_name="(unnamed branch)"     # detached HEAD
 branch_name=${branch_name##refs/heads/}
@@ -17,7 +16,7 @@ for branch in "${branches[@]}"; do
     	git checkout $b 
     	meld . ../comparisonDir/$branch_name
     	git add --all
-    	git commit -m $1
+    	git commit -m '"'$1'"'
     fi
 done
 git checkout $branch_name
