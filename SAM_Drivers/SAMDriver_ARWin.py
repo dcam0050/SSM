@@ -169,36 +169,6 @@ class SAMDriver_ARWin(SAMDriver):
             except:
                 pass
 
-    def testPerformance(self, testModel, Yall, Lall, YtestAll, LtestAll, verbose):
-        """
-        Custom testPerformance method. This augments the standard testPerformance method by including testing of known and unknown together with testing on known training points and known testing points.
-
-        Args:
-            testModel : SAMObject Model to be tested.
-            Yall : Numpy array with training data vectors to be tested.
-            Lall : List with corresponding training data labels.
-            YtestAll : Numpy array with testing data vectors to be tested.
-            LtestAll : List with corresponding testing data labels.
-            verbose : Boolean turning logging to stdout on or off.
-
-        Returns:
-             Square numpy array confusion matrix.
-        """
-
-        yTrainingData = SAMTesting.formatDataFunc(Yall)
-        [self.segTrainConf, self.segTrainPerc, labelsSegTrain, labelComparisonDict] = \
-            SAMTesting.testSegments(testModel, yTrainingData, Lall, verbose, 'Training')
-
-        yTrainingData = SAMTesting.formatDataFunc(YtestAll)
-        [self.segTestConf, self.segTestPerc, labelsSegTest, labelComparisonDict] = \
-            SAMTesting.testSegments(testModel, yTrainingData, LtestAll, verbose, 'Testing')
-
-        yTrainingData = SAMTesting.formatDataFunc(self.allDataDict['Y'])
-        [self.seqTestConf, self.seqTestPerc, labelsSeqTest, _] = SAMTesting.testSegments(testModel, yTrainingData,
-                                                                       self.allDataDict['L'], verbose, 'All')
-
-        return self.segTestConf, labelsSegTest, labelComparisonDict
-
     def diskDataToLiveData(self, root_data_dir):
         """
             This method reads in time series data from disk for SAMDriver_ARWin.

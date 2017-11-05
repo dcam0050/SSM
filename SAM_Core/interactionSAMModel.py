@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import matplotlib
-matplotlib.use("agg")
 import matplotlib.pyplot as plt
 import sys
 import time
@@ -16,17 +15,23 @@ import logging
 from os.path import join
 import os
 from operator import itemgetter
-import copy
 import thread
 warnings.simplefilter("ignore")
 np.set_printoptions(precision=2)
+matplotlib.use("agg")
 
 ## @ingroup icubclient_SAM_Core
+
+
 class interactionSAMModel(yarp.RFModule):
     """Generic interaction function
 
         Description:
-            Generic interaction function that carries out live collection of data, classification of said data, interaction with other modules requesting the classification and generation of training outputs for recall. The parameters for the interaction function are loaded from the config file specified in the `config_path` parameter of the default context file for samSupervisor.py. An example of the configuration structure is shown below.
+            Generic interaction function that carries out live collection of data, classification of said data,
+            interaction with other modules requesting the classification and generation of training outputs for recall.
+            The parameters for the interaction function are loaded from the config file specified in the `config_path`
+            parameter of the default context file for samSupervisor.py. An example of the configuration structure is
+            shown below.
 
         Example:
             [Model Name]
@@ -51,8 +56,11 @@ class interactionSAMModel(yarp.RFModule):
             rpcBase : The rpc port that will receive external requests. This is usually controlled by samSupervisor.py.
             latentModelPort : The port name for the port that will transmit the image showing the latent model of the current model
             call_sign : The commands that will trigger a classify from data event or a generate from label event.
-            collectionMethod : The collection method to be used. Either `buffered`, `future_buffered` or `continuous`. Followed by an integer indicating the length of the buffer to be used. In the case of `continuous` the buffer length is the maximum number of classification labels to be stored in a First In Last Out (FILO) configuration. Otherwise the buffer length indicates the number of data frames that are required for a classification to take place.
-
+            collectionMethod : The collection method to be used. Either `buffered`, `future_buffered` or `continuous`.
+                               Followed by an integer indicating the length of the buffer to be used. In the case of
+                               `continuous` the buffer length is the maximum number of classification labels to be
+                               stored in a First In Last Out (FILO) configuration. Otherwise the buffer length indicates
+                                the number of data frames that are required for classification to take place.
     """
     def __init__(self):
         """
@@ -123,16 +131,17 @@ class interactionSAMModel(yarp.RFModule):
 
         Args:
             rf: Yarp RF context input
-            argv_1 : String containing data path.
-            argv_2 : String containing model path.
-            argv_3 : String containing config file path (from `config_path` parameter of samSupervisor config file).
-            argv_4 : String driver name corresponding to a valid driver present in SAM_Drivers folder.
-            argv_5 : String `'True'` or `'False'` to switch formatting of logging depending on whether interaction is logging to a separate window or to the stdout of another process.
+            argv[1] : String containing data path.
+            argv[2] : String containing model path.
+            argv[3] : String containing config file path (from `config_path` parameter of samSupervisor config file).
+            argv[4] : String driver name corresponding to a valid driver present in SAM_Drivers folder.
+            argv[5] : String `'True'` or `'False'` to switch formatting of logging depending on whether interaction is
+                      logging to a separate window or to the stdout of another process.
         Returns:
             Boolean indicating success or no success in initialising the yarp module
         """
-        stringCommand = 'from SAM.SAM_Drivers import ' + sys.argv[4] + ' as Driver'
-        exec stringCommand
+        string_command = 'from SAM.SAM_Drivers import ' + sys.argv[4] + ' as Driver'
+        exec string_command
 
         self.mm = [Driver()]
         self.dataPath = sys.argv[1]
@@ -143,34 +152,34 @@ class interactionSAMModel(yarp.RFModule):
         self.modelRoot = self.dataPath.split('/')[-1]
 
         file_i = 0
-        loggerFName = join(self.dataPath, self.baseLogFileName + '_' + str(file_i) + '.log')
+        logger_file_name = join(self.dataPath, self.baseLogFileName + '_' + str(file_i) + '.log')
 
         # check if file exists
-        while os.path.isfile(loggerFName) and os.path.getsize(loggerFName) > 0:
-            loggerFName = join(self.dataPath, self.baseLogFileName + '_' + str(file_i) + '.log')
+        while os.path.isfile(logger_file_name) and os.path.getsize(logger_file_name) > 0:
+            logger_file_name = join(self.dataPath, self.baseLogFileName + '_' + str(file_i) + '.log')
             file_i += 1
 
         if self.windowedMode:
-            logFormatter = logging.Formatter("[%(levelname)s]  %(message)s")
+            log_formatter = logging.Formatter("[%(levelname)s]  %(message)s")
         else:
-            logFormatter = logging.Formatter("\033[31m%(asctime)s [%(name)-33s] [%(levelname)8s]  %(message)s\033[0m")
+            log_formatter = logging.Formatter("\033[31m%(asctime)s [%(name)-33s] [%(levelname)8s]  %(message)s\033[0m")
 
-        rootLogger = logging.getLogger('interaction ' + self.driverName)
-        rootLogger.setLevel(logging.DEBUG)
+        root_logger = logging.getLogger('interaction ' + self.driverName)
+        root_logger.setLevel(logging.DEBUG)
 
-        fileHandler = logging.FileHandler(loggerFName)
-        fileHandler.setFormatter(logFormatter)
-        rootLogger.addHandler(fileHandler)
+        file_handler = logging.FileHandler(logger_file_name)
+        file_handler.setFormatter(log_formatter)
+        root_logger.addHandler(file_handler)
 
-        consoleHandler = logging.StreamHandler()
-        consoleHandler.setFormatter(logFormatter)
-        rootLogger.addHandler(consoleHandler)
-        logging.root = rootLogger
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(log_formatter)
+        root_logger.addHandler(console_handler)
+        logging.root = root_logger
 
         off = 17
         logging.info('Arguments: ' + str(sys.argv))
-        logging.info(stringCommand)
-        logging.info('Using log' + str(loggerFName))
+        logging.info(string_command)
+        logging.info('Using log' + str(logger_file_name))
         logging.info('-------------------')
         logging.info('Interaction Settings:')
         logging.info('Data Path: '.ljust(off) + str(self.dataPath))
@@ -184,7 +193,7 @@ class interactionSAMModel(yarp.RFModule):
         # parse settings from config file
         parser2 = SafeConfigParser()
         parser2.read(self.configPath)
-        proposedBuffer = 5
+        proposed_buffer = 5
         if self.modelRoot in parser2.sections():
             self.portNameList = parser2.items(self.dataPath.split('/')[-1])
             logging.info(str(self.portNameList))
@@ -210,7 +219,7 @@ class interactionSAMModel(yarp.RFModule):
                 elif self.portNameList[j][0] == 'collectionmethod':
                     self.collectionMethod = self.portNameList[j][1].split(' ')[0]
                     try:
-                        proposedBuffer = int(self.portNameList[j][1].split(' ')[1])
+                        proposed_buffer = int(self.portNameList[j][1].split(' ')[1])
                     except ValueError:
                         logging.error('collectionMethod bufferSize is not an integer')
                         logging.error('Should be e.g: collectionMethod = buffered 3')
@@ -284,15 +293,16 @@ class interactionSAMModel(yarp.RFModule):
             self.classTimestamps = []
             yarp.Network.init()
 
-            self.mm = initialiseModels([self.dataPath, self.modelPath, self.driverName], 'update', 'interaction', drawLatent=self.drawLatent)
+            self.mm = initialiseModels([self.dataPath, self.modelPath, self.driverName], 'update', 'interaction',
+                                       drawLatent=self.drawLatent)
             self.modelLoaded = True
             if self.drawLatent:
                 self.latentPlots = dict()
                 self.latentPlots['ax'], self.latentPlots['dims'] = self.mm[0].SAMObject.visualise(plot_scales=True)
-                self.sendLatent(self.latentPlots['ax'])
+                self.send_latent(self.latentPlots['ax'])
 
             if self.mm[0].model_mode != 'temporal':
-                self.bufferSize = proposedBuffer
+                self.bufferSize = proposed_buffer
             elif self.mm[0].model_mode == 'temporal':
                 self.bufferSize = self.mm[0].temporalModelWindowSize
 
@@ -305,16 +315,16 @@ class interactionSAMModel(yarp.RFModule):
             logging.error('Section ' + str(self.modelRoot) + ' not found in ' + str(self.configPath))
             return False
 
-    def sendLatent(self, latentPlots):
+    def send_latent(self, latent_plots):
         print "entered saved latent"
-        data = np.fromstring(latentPlots.figure.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-        data = data.reshape(latentPlots.figure.canvas.get_width_height()[::-1] + (3,))
+        data = np.fromstring(latent_plots.figure.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        data = data.reshape(latent_plots.figure.canvas.get_width_height()[::-1] + (3,))
         print data.shape
 
-        yarpImage = self.portsList[self.latentPort].prepare()
-        yarpImage.resize(data.shape[1], data.shape[0])
+        yarp_image = self.portsList[self.latentPort].prepare()
+        yarp_image.resize(data.shape[1], data.shape[0])
         data = data.astype(np.uint8)
-        yarpImage.setExternal(data, data.shape[1], data.shape[0])
+        yarp_image.setExternal(data, data.shape[1], data.shape[0])
         self.portsList[self.latentPort].write()
 
     def close(self):
@@ -322,7 +332,6 @@ class interactionSAMModel(yarp.RFModule):
             Close Yarp module
 
             Args:
-                None
 
             Returns:
                 Boolean indicating success or no success in closing the Yarp module
@@ -334,7 +343,7 @@ class interactionSAMModel(yarp.RFModule):
         return False
 
     @timeout(3)
-    def closePort(self, j):
+    def close_port(self, j):
         """
             Helper function to close ports with an enforced timeout of 3 seconds so the module doesn't hang.
 
@@ -356,7 +365,8 @@ class interactionSAMModel(yarp.RFModule):
                 Available requests \n
                 1) __heartbeat__      :  Sanity check request to make sure module is still alive. \n
                 2) __information__    :  Utility request to pass in contextual information. \n
-                3) __portNames__      :  Request to return the name of the currently open ports for samSupervisor to keep a list of open ports. \n
+                3) __portNames__      :  Request to return the name of the currently open ports for samSupervisor to
+                                         keep a list of open ports. \n
                 4) __reload__         :  Request to reload model from disk. \n
                 5) __toggleVerbose__  :  Switch logging to stdout on or off. \n
                 6) __EXIT__           :  Abort and close the module. \n
@@ -400,7 +410,7 @@ class interactionSAMModel(yarp.RFModule):
                 logging.info("reloading model")
                 try:
                     self.mm = initialiseModels([self.dataPath, self.modelPath, self.driverName],
-                                                'update', 'interaction')
+                                               'update', 'interaction')
                     reply.addString('ack')
                 except:
                     reply.addString('nack')
@@ -434,9 +444,9 @@ class interactionSAMModel(yarp.RFModule):
             elif action in self.callSignList:
                 logging.info('call sign command recognized')
                 if 'label' in action:
-                    self.classifyInstance(reply)
+                    self.classify_instance(reply)
                 elif 'instance' in action:
-                    self.generateInstance(reply, command.get(1).asString())
+                    self.generate_instance(reply, command.get(1).asString())
             # -------------------------------------------------
             else:
                 reply.addString("nack")
@@ -447,15 +457,20 @@ class interactionSAMModel(yarp.RFModule):
 
         return True
 
-    def classifyInstance(self, reply):
+    def classify_instance(self, reply):
         """
             Classify a live collected data instance
 
             Description:
                 This method responds to an `ask_x_label` request sent via the rpc port of the module. \n
-                In the case of __collectionMethod__ = `buffered`, the data currently in the buffer is sent to processLiveData() method for the current driver which returns a classification label that is embedded in reply.\n
-                In the case of __collectionMethod__ = `future_buffered`, this method reads incoming frames from the `dataIn` port until the collection buffer is full at which point it calls processLiveData() to get a classification label.\n
-                In the case of __collectionMethod__ = `continuous`, this model returns the most recent label in the FILO buffer containing classification labels.\n
+                In the case of __collectionMethod__ = `buffered`, the data currently in the buffer is sent to
+                                                       processLiveData() method for the current driver which returns a
+                                                       classification label that is embedded in reply.\n
+                In the case of __collectionMethod__ = `future_buffered`, this method reads incoming frames from the
+                                                      `dataIn` port until the collection buffer is full at which point
+                                                      it calls processLiveData() to get a classification label.\n
+                In the case of __collectionMethod__ = `continuous`, this model returns the most recent label in the
+                                                       FILO buffer containing classification labels.\n
 
             Args:
                 reply : Outgoing Yarp bottle containing classification label.
@@ -466,34 +481,35 @@ class interactionSAMModel(yarp.RFModule):
         if self.portsList[self.labelPort].getInputCount() > 0:
             if self.verboseSetting:
                 logging.info('-------------------------------------')
+            data_list = None
             if self.collectionMethod == 'buffered':
                 if self.modelLoaded:
                     logging.debug('going in process live')
                     if self.drawLatent:
                         self.latentPlots['ax'], _ = self.mm[0].SAMObject.visualise(plot_scales=True)
-                    thisClass, probClass, dataList = self.mm[0].processLiveData(self.dataList, self.mm,
-                                                                                verbose=self.verboseSetting,
-                                                                                additionalData=self.additionalInfoDict,
-                                                                                visualiseInfo=self.latentPlots)
+                    this_class, prob_class, data_list = \
+                        self.mm[0].processLiveData(self.dataList, self.mm, verbose=self.verboseSetting,
+                                                   additionalData=self.additionalInfoDict,
+                                                   visualiseInfo=self.latentPlots)
                     if self.drawLatent:
-                        self.sendLatent(self.latentPlots['ax1'][0].axes)
+                        self.send_latent(self.latentPlots['ax1'][0].axes)
                     logging.debug('exited process live')
                 else:
-                    thisClass = None
-                logging.debug(thisClass)
-                logging.debug('object thisclass' + str(thisClass is None))
-                logging.debug('object datalist' + str(dataList is None))
-                logging.debug('string thisclass' + str(thisClass == 'None'))
-                logging.debug('string datalist' + str(dataList == 'None'))
-                if thisClass is None or dataList is None:
+                    this_class = None
+                logging.debug(this_class)
+                logging.debug('object thisclass' + str(this_class is None))
+                logging.debug('object datalist' + str(data_list is None))
+                logging.debug('string thisclass' + str(this_class == 'None'))
+                logging.debug('string datalist' + str(data_list == 'None'))
+                if this_class is None or data_list is None:
                     logging.debug('None reply')
                     reply.addString('nack')
                 else:
                     logging.debug('correct reply')
                     reply.addString('ack')
-                    reply.addString(thisClass)
+                    reply.addString(this_class)
                 logging.debug('finish reply')
-                    # reply.addDouble(probClass)
+                # reply.addDouble(probClass)
             # -------------------------------------------------
             elif self.collectionMethod == 'continuous':
                 # mutex lock classificationList
@@ -503,58 +519,58 @@ class interactionSAMModel(yarp.RFModule):
                 # check last n seconds
                 if len(self.classificationList) > 0:
                     if self.useRecentClassTime:
-                        minT = self.classTimestamps[-1] - self.recency
+                        min_t = self.classTimestamps[-1] - self.recency
                     else:
-                        minT = time.time() - self.recency
+                        min_t = time.time() - self.recency
 
-                    logging.debug('minT ' + str(minT))
+                    logging.debug('min_t ' + str(min_t))
                     logging.debug('recency ' + str(self.recency))
                     for index, value in enumerate(self.classTimestamps):
-                        logging.debug(str(index) + ' ' + str(value) + ' ' + str(value > minT))
-                    validList = [index for index, value in enumerate(self.classTimestamps) if value > minT]
-                    logging.debug('validList ' + str(validList))
-                    minIdx = min(validList)
-                    logging.debug('minIdx ' + str(minIdx))
-                    validClassList = self.classificationList[minIdx:]
-                    validProbList = self.probClassList[minIdx:]
-                    logging.debug('validClassList ' + str(validClassList))
+                        logging.debug(str(index) + ' ' + str(value) + ' ' + str(value > min_t))
+                    valid_list = [index for index, value in enumerate(self.classTimestamps) if value > min_t]
+                    logging.debug('validList ' + str(valid_list))
+                    min_idx = min(valid_list)
+                    logging.debug('min_idx ' + str(min_idx))
+                    valid_class_list = self.classificationList[min_idx:]
+                    valid_prob_list = self.probClassList[min_idx:]
+                    logging.debug('validClassList ' + str(valid_class_list))
                     logging.debug('classify classList' + str(self.classificationList))
                     logging.debug('classify probclassList' + str(self.probClassList))
                     logging.debug('classify classTimeStamps' + str(self.classTimestamps))
 
-                    if len(validClassList) > 0:
+                    if len(valid_class_list) > 0:
 
                         # combine all classifications
-                        if len(validClassList) == 1:
+                        if len(valid_class_list) == 1:
                             logging.debug('validClassList is of len 1')
-                            decision = validClassList[0]
+                            decision = valid_class_list[0]
                         else:
-                            logging.debug('validClassList is of len ' + str(len(validClassList)))
-                            setClass = list(set(validClassList))
-                            logging.debug('setClass ' + str(setClass))
-                            if len(setClass) == len(validClassList):
-                                logging.debug('len setClass = len validClassList' + str(len(setClass)) + ' ' +
-                                              str(len(validClassList)))
-                                decision = validClassList[validProbList.index(max(validProbList))]
+                            logging.debug('validClassList is of len ' + str(len(valid_class_list)))
+                            set_class = list(set(valid_class_list))
+                            logging.debug('set_class ' + str(set_class))
+                            if len(set_class) == len(valid_class_list):
+                                logging.debug('len set_class = len validClassList' + str(len(set_class)) + ' ' +
+                                              str(len(valid_class_list)))
+                                decision = valid_class_list[valid_prob_list.index(max(valid_prob_list))]
                             else:
-                                dictResults = dict()
-                                for m in setClass:
+                                dict_results = dict()
+                                for m in set_class:
                                     logging.debug('currentM ' + str(m))
-                                    idxM = [idx for idx, name in enumerate(validClassList) if name == m]
-                                    logging.debug('idx ' + str(idxM))
-                                    probVals = itemgetter(*idxM)(validProbList)
-                                    logging.debug('probs ' + str(probVals))
+                                    idx_m = [idx for idx, name in enumerate(valid_class_list) if name == m]
+                                    logging.debug('idx ' + str(idx_m))
+                                    prob_vals = itemgetter(*idx_m)(valid_prob_list)
+                                    logging.debug('probs ' + str(prob_vals))
                                     try:
-                                        probSum = sum(probVals)
+                                        prob_sum = sum(prob_vals)
                                     except TypeError:
-                                        probSum = probVals
-                                    logging.debug('sum ' + str(probSum))
-                                    dictResults[m] = probSum
+                                        prob_sum = prob_vals
+                                    logging.debug('sum ' + str(prob_sum))
+                                    dict_results[m] = prob_sum
                                     logging.debug('')
-                                logging.debug('dictResults ' + str(dictResults))
-                                maxDictProb = max(dictResults.values())
-                                logging.debug('maxDictProb = ' + str(maxDictProb))
-                                decisions = [key for key in dictResults.keys() if dictResults[key] == maxDictProb]
+                                logging.debug('dict_results ' + str(dict_results))
+                                max_dict_prob = max(dict_results.values())
+                                logging.debug('max_dict_prob = ' + str(max_dict_prob))
+                                decisions = [key for key in dict_results.keys() if dict_results[key] == max_dict_prob]
                                 logging.info('Decision: ' + str(decisions))
                                 logging.info('We have resolution')
                                 decision = ' and '.join(decisions)
@@ -566,9 +582,9 @@ class interactionSAMModel(yarp.RFModule):
                         # self.classificationList.pop(-1)
 
                         # remove validclassList from self.classificationList / probClassList / classTimeStamps
-                        self.classificationList = self.classificationList[:minIdx]
-                        self.probClassList = self.probClassList[:minIdx]
-                        self.classTimestamps = self.classTimestamps[:minIdx]
+                        self.classificationList = self.classificationList[:min_idx]
+                        self.probClassList = self.probClassList[:min_idx]
+                        self.classTimestamps = self.classTimestamps[:min_idx]
 
                     else:
                         logging.info('No valid classifications')
@@ -585,70 +601,72 @@ class interactionSAMModel(yarp.RFModule):
             elif self.collectionMethod == 'future_buffered':
                 self.dataList = []
                 for j in range(self.bufferSize):
-                    self.dataList.append(self.readFrame())
+                    self.dataList.append(self.read_frame())
                 if self.modelLoaded:
                     if self.drawLatent:
                         self.latentPlots['ax'], _ = self.mm[0].SAMObject.visualise(plot_scales=True)
-                    thisClass, probClass, dataList = self.mm[0].processLiveData(self.dataList, self.mm,
-                                                                                verbose=self.verboseSetting,
-                                                                                additionalData=self.additionalInfoDict,
-                                                                                visualiseInfo=self.latentPlots)
+                    this_class, prob_class, data_list = \
+                        self.mm[0].processLiveData(self.dataList, self.mm, verbose=self.verboseSetting,
+                                                   additionalData=self.additionalInfoDict,
+                                                   visualiseInfo=self.latentPlots)
                     if self.drawLatent:
-                        self.sendLatent(self.latentPlots['ax1'][0].axes)
+                        self.send_latent(self.latentPlots['ax1'][0].axes)
                         # self.latentPlots['ax1'].pop(0).remove()
                 else:
-                    thisClass = None
+                    this_class = None
 
-                if thisClass is None or dataList is None:
+                if this_class is None or data_list is None:
                     logging.info('thisClass or dataList returned None')
-                    logging.debug('thisClass: ' + str(type(thisClass)) + ' ' + str(thisClass))
-                    logging.debug('dataList: ' + str(type(dataList)) + ' ' + str(dataList))
+                    logging.debug('thisClass: ' + str(type(this_class)) + ' ' + str(this_class))
+                    logging.debug('dataList: ' + str(type(data_list)) + ' ' + str(data_list))
                     reply.addString('nack')
                 else:
                     reply.addString('ack')
-                    reply.addString(thisClass)
+                    reply.addString(this_class)
                     # reply.addDouble(probClass)
         else:
             reply.addString('nack')
             reply.addString('No input connections to ' + str(self.portsList[self.labelPort].getName()))
         logging.info('--------------------------------------')
 
-    def generateInstance(self, reply, instanceName):
+    def generate_instance(self, reply, instance_name):
         """Responds to an ask_X_instance request
 
         Description:
-            Implements the logic for responding to an `ask_X_instance` rpc request for __instanceName__. This method responds with an `ack` or `nack` on the rpc port indicating success of memory generation and outputs the generated instance returned by recallFromLabel on the `dataOut` port.
+            Implements the logic for responding to an `ask_X_instance` rpc request for __instanceName__.
+            This method responds with an `ack` or `nack` on the rpc port indicating success of memory generation and
+            outputs the generated instance returned by recall_from_label on the `dataOut` port.
 
         Args:
             reply : Yarp Bottle to embed the rpc response.
-            instanceName : Name of class to generate.
+            instance_name : Name of class to generate.
 
         Returns:
             None
         """
         if self.portsList[self.instancePort].getOutputCount() != 0:
-            if instanceName in self.mm[0].textLabels:
-                instance = self.recallFromLabel(instanceName)
+            if instance_name in self.mm[0].textLabels:
+                instance = self.recall_from_label(instance_name)
                 # send generated instance to driver where it is converted into the proper format
-                formattedData = self.mm[0].formatGeneratedData(instance)
-                # check formattedData is of correct data type
+                formatted_data = self.mm[0].formatGeneratedData(instance)
+                # check formatted_data is of correct data type
                 if str(type(self.portsList[self.instancePort])).split('\'')[1].split('Port')[1] \
-                        in str(type(formattedData)):
+                        in str(type(formatted_data)):
                     try:
                         img = self.portsList[self.instancePort].prepare()
-                        img.copy(formattedData)
+                        img.copy(formatted_data)
                         self.portsList[self.instancePort].write()
                         reply.addString('ack')
-                        reply.addString('Generated instance of ' + instanceName + ' as ' +
-                                        str(type(formattedData)))
+                        reply.addString('Generated instance of ' + instance_name + ' as ' +
+                                        str(type(formatted_data)))
                     except:
                         reply.addString('nack')
-                        reply.addString('Failed to write ' + instanceName + ' as ' +
+                        reply.addString('Failed to write ' + instance_name + ' as ' +
                                         str(type(self.portsList[self.instancePort])))
                 else:
                     reply.addString('nack')
                     reply.addString('Output of ' + self.driverName + '.formatGeneratedData is of type: ' +
-                                    str(type(formattedData)) + '. Should be type: ' +
+                                    str(type(formatted_data)) + '. Should be type: ' +
                                     str(type(self.portsList[self.instancePort])))
             else:
                 reply.addString('nack')
@@ -657,7 +675,7 @@ class interactionSAMModel(yarp.RFModule):
             reply.addString('nack')
             reply.addString('No outgoing connections on ' + str(self.portsList[self.instancePort].getName()))
 
-    def recallFromLabel(self, label):
+    def recall_from_label(self, label):
         """
             Generates instance based on label.
 
@@ -669,13 +687,13 @@ class interactionSAMModel(yarp.RFModule):
         """
         ind = self.mm[0].textLabels.index(label)
         if len(self.mm) > 1:
-            indsToChooseFrom = self.mm[ind + 1].SAMObject.model.textLabelPts[ind]
-            chosenInd = np.random.choice(indsToChooseFrom, 1)
-            yrecall = self.mm[ind + 1].SAMObject.recall(chosenInd)
+            inds_to_choose_from = self.mm[ind + 1].SAMObject.model.textLabelPts[ind]
+            chosen_ind = np.random.choice(inds_to_choose_from, 1)
+            yrecall = self.mm[ind + 1].SAMObject.recall(chosen_ind)
         else:
-            indsToChooseFrom = self.mm[0].SAMObject.model.textLabelPts[ind]
-            chosenInd = np.random.choice(indsToChooseFrom, 1)
-            yrecall = self.mm[0].SAMObject.recall(chosenInd)
+            inds_to_choose_from = self.mm[0].SAMObject.model.textLabelPts[ind]
+            chosen_ind = np.random.choice(inds_to_choose_from, 1)
+            yrecall = self.mm[0].SAMObject.recall(chosen_ind)
 
         return yrecall
 
@@ -700,7 +718,8 @@ class interactionSAMModel(yarp.RFModule):
             Logic to execute every getPeriod() seconds.
 
             Description:
-                This function makes sure important ports are connected. Priority 1 is the rpc port. Priority 2 is the data in port. If both are connected this function triggers collectData().
+                This function makes sure important ports are connected. Priority 1 is the rpc port.
+                Priority 2 is the data in port. If both are connected this function triggers collect_data().
 
             Returns: Boolean indicating success of logic or not.
         """
@@ -715,7 +734,7 @@ class interactionSAMModel(yarp.RFModule):
             else:
                 self.dataInConnected = self.portsList[self.labelPort].getInputCount() > 0
                 if self.dataInConnected:
-                    self.collectData()
+                    self.collect_data()
                 else:
                     self.noDataCount += 1
                     if self.noDataCount == self.errorRate:
@@ -733,12 +752,16 @@ class interactionSAMModel(yarp.RFModule):
         time.sleep(0.05)
         return True
 
-    def readFrame(self):
+    def read_frame(self):
         """
             Logic to read an available data frame.
 
             Description:
-                This function first checks the required data type of the frame to be received and instantiates the required yarp data object. This function then subsequently reads in the latest frame from the __dataIn__ port which it returns. Return is `None` if the data type is not recognised. This is currently a limitation because `ImageRgb`, `ImageMono` and `Bottle` are so far the only supported bottle types. This can be easily extended in this section by adding more cases.
+                This function first checks the required data type of the frame to be received and instantiates the
+                required yarp data object. This function then subsequently reads in the latest frame from the
+                __dataIn__ port which it returns. Return is `None` if the data type is not recognised. This is
+                currently a limitation because `ImageRgb`, `ImageMono` and `Bottle` are so far the only supported
+                bottle types. This can be easily extended in this section by adding more cases.
 
             Returns: Boolean indicating success of logic or not.
         """
@@ -751,24 +774,27 @@ class interactionSAMModel(yarp.RFModule):
         else:
             return None
 
-        frameRead = self.portsList[self.labelPort].read(True)
+        frame_read = self.portsList[self.labelPort].read(True)
 
         if self.inputType == 'bottle':
-            frame.fromString(frameRead.toString())
+            frame.fromString(frame_read.toString())
         elif 'image' in self.inputType:
-            frame.copy(frameRead)
+            frame.copy(frame_read)
 
         return frame
 
-    def collectData(self):
+    def collect_data(self):
         """Collect data function
 
         Description:
             This function implements three types of data collection procedures: \n
 
-            1) __buffered__ : Collects data in a fixed length FIFO buffer of past frames. This buffer is read by classifyInstance(). \n
+            1) __buffered__ : Collects data in a fixed length FIFO buffer of past frames.
+                              This buffer is read by classify_instance(). \n
             2) __future_buffered__ : No operation. \n
-            3) __continuous__ : Collect data until a buffer of length windowSize is full and then perform a classification on this data. The classification is then stored in a buffer with is read by classifyInstance(). \n
+            3) __continuous__ : Collect data until a buffer of length windowSize is full and then perform a
+                                classification on this data. The classification is then stored in a buffer with is read
+                                by classify_instance(). \n
 
             Returns:
                 None
@@ -776,7 +802,7 @@ class interactionSAMModel(yarp.RFModule):
         self.noDataCount = 0
 
         if self.collectionMethod == 'buffered':
-            frame = self.readFrame()
+            frame = self.read_frame()
             # append frame to buffer
             if len(self.dataList) == self.bufferSize:
                 # FIFO buffer first item in list most recent
@@ -787,40 +813,41 @@ class interactionSAMModel(yarp.RFModule):
         # -------------------------------------------------
         elif self.collectionMethod == 'continuous' and self.attentionMode == 'continue':
             # read frame of data
-            frame = self.readFrame()
-            # append frame to dataList
+            frame = self.read_frame()
+            # append frame to data_list
 
             if self.dataList is None:
                 self.dataList = []
 
             self.dataList.append(frame)
             # process list of frames for a classification
-            dataList = []
+            data_list = []
+            prob_class = None
             if self.modelLoaded:
                 if self.drawLatent:
                     self.latentPlots['ax'], _ = self.mm[0].SAMObject.visualise(plot_scales=True)
-                thisClass, probClass, dataList = self.mm[0].processLiveData(self.dataList, self.mm,
-                                                                            verbose=self.verboseSetting,
-                                                                            additionalData=self.additionalInfoDict,
-                                                                            visualiseInfo=self.latentPlots)
+                this_class, prob_class, data_list = \
+                    self.mm[0].processLiveData(self.dataList, self.mm, verbose=self.verboseSetting,
+                                               additionalData=self.additionalInfoDict,
+                                               visualiseInfo=self.latentPlots)
                 if self.drawLatent:
-                    self.sendLatent(self.latentPlots['ax1'][0].axes)
+                    self.send_latent(self.latentPlots['ax1'][0].axes)
             else:
-                thisClass = None
+                this_class = None
             # if proper classification
-            if thisClass is not None:
-                # empty dataList
+            if this_class is not None:
+                # empty data_list
 
-                # mutex dataList lock
+                # mutex data_list lock
                 self.my_mutex.acquire()
-                self.dataList = dataList
-                # mutex dataList release
+                self.dataList = data_list
+                # mutex data_list release
 
-                if thisClass != 'None':
-                    tStamp = time.time()
-                    eventBottle = self.portsList[self.eventPort].prepare()
-                    eventBottle.clear()
-                    eventBottle.addString('ack')
+                if this_class != 'None':
+                    t_stamp = time.time()
+                    event_bottle = self.portsList[self.eventPort].prepare()
+                    event_bottle.clear()
+                    event_bottle.addString('ack')
                     self.portsList[self.eventPort].write()
                     # add classification to classificationList to be retrieved during respond method
 
@@ -828,26 +855,26 @@ class interactionSAMModel(yarp.RFModule):
 
                     # Time based method
                     logging.info('classList len: ' + str(len(self.classificationList)))
-                    logging.debug('thisclass ' + str(thisClass))
-                    self.classificationList = self.classificationList + thisClass
+                    logging.debug('thisclass ' + str(this_class))
+                    self.classificationList = self.classificationList + this_class
                     logging.debug('classificationList ' + str(self.classificationList))
-                    self.probClassList = self.probClassList + probClass
-                    logging.debug('probClass ' + str(self.probClassList))
-                    self.classTimestamps = self.classTimestamps + [tStamp]*len(thisClass)
+                    self.probClassList = self.probClassList + prob_class
+                    logging.debug('prob_class ' + str(self.probClassList))
+                    self.classTimestamps = self.classTimestamps + [t_stamp]*len(this_class)
                     logging.debug('self.classTimestamps ' + str(self.classTimestamps))
                     # remove timestamps older than memory duration (self.bufferSize in seconds)
                     logging.debug('last time stamp: ' + str(self.classTimestamps[-1]))
-                    minMemT = self.classTimestamps[-1] - self.bufferSize
-                    logging.debug('minMemT ' + str(minMemT))
-                    goodIdxs = [idx for idx, timeVal in enumerate(self.classTimestamps) if timeVal > minMemT]
-                    logging.debug('goodIdxs ' + str(goodIdxs))
-                    minIdx = min(goodIdxs)
-                    self.classificationList = self.classificationList[minIdx:]
-                    self.probClassList = self.probClassList[minIdx:]
-                    self.classTimestamps = self.classTimestamps[minIdx:]
+                    min_mem_t = self.classTimestamps[-1] - self.bufferSize
+                    logging.debug('min_mem_t ' + str(min_mem_t))
+                    good_idxs = [idx for idx, timeVal in enumerate(self.classTimestamps) if timeVal > min_mem_t]
+                    logging.debug('good_idxs ' + str(good_idxs))
+                    min_idx = min(good_idxs)
+                    self.classificationList = self.classificationList[min_idx:]
+                    self.probClassList = self.probClassList[min_idx:]
+                    self.classTimestamps = self.classTimestamps[min_idx:]
 
                     logging.debug('classificationList ' + str(self.classificationList))
-                    logging.debug('probClass ' + str(self.probClassList))
+                    logging.debug('prob_class ' + str(self.probClassList))
                     logging.debug('self.classTimestamps ' + str(self.classTimestamps))
 
                     # Old method
@@ -855,11 +882,11 @@ class interactionSAMModel(yarp.RFModule):
                     #     # FIFO buffer first item in list is oldest
                     #     self.classificationList.pop(0)
                     #     self.classTimestamps.pop(0)
-                    #     self.classificationList.append(thisClass)
-                    #     self.classTimestamps.append(tStamp)
+                    #     self.classificationList.append(this_class)
+                    #     self.classTimestamps.append(t_stamp)
                     # else:
-                    #     self.classificationList.append(thisClass)
-                    #     self.classTimestamps.append(tStamp)
+                    #     self.classificationList.append(this_class)
+                    #     self.classTimestamps.append(t_stamp)
 
                 # mutex release
                 self.my_mutex.release()
@@ -873,33 +900,33 @@ class interactionSAMModel(yarp.RFModule):
         """
         count = 0
         if self.collectionMethod == 'continuous':
-            classifyBlock = self.mm[0].paramsDict['windowSize']
+            classify_block = self.mm[0].paramsDict['windowSize']
         elif self.collectionMethod == 'buffered':
-            classifyBlock = self.bufferSize
+            classify_block = self.bufferSize
         else:
-            classifyBlock = 10
+            classify_block = 10
 
         while True:
             out = (self.portsList[self.svPort].getOutputCount() + self.portsList[self.svPort].getInputCount()) > 0
-            dataInConnected = self.portsList[self.labelPort].getInputCount() > 0
+            data_in_connected = self.portsList[self.labelPort].getInputCount() > 0
 
-            if out and dataInConnected:
+            if out and data_in_connected:
                 if self.collectionMethod == 'future_buffered':
                     reply = yarp.Bottle()
-                    self.classifyInstance(reply)
+                    self.classify_instance(reply)
                     logging.info(reply.toString())
                 elif self.collectionMethod == 'continuous':
-                    self.collectData()
+                    self.collect_data()
                     count += 1
-                    if count == classifyBlock:
+                    if count == classify_block:
                         count = 0
                         reply = yarp.Bottle()
-                        self.classifyInstance(reply)
+                        self.classify_instance(reply)
                         logging.info('CLASSIFICATION: ' + reply.toString())
 
                 # self.dataList = []
                 # for j in range(self.bufferSize):
-                #     self.dataList.append(self.readFrame())
+                #     self.dataList.append(self.read_frame())
 
                 # if thisClass is None:
                 #     logging.info('None')
@@ -913,7 +940,9 @@ def exception_hook(exc_type, exc_value, exc_traceback):
     """Callback function to record any errors that occur in the log files.
 
         Documentation:
-            Substitutes the standard python exception_hook with one that records the error into a log file. Can only work if interactionSAMModel.py is called from python and not ipython because ipython overrides this substitution.
+            Substitutes the standard python exception_hook with one that records the error into a log file.
+            Can only work if interactionSAMModel.py is called from python and not ipython because ipython
+            overrides this substitution.
         Args:
             exc_type: Exception Type.
             exc_value: Exception Value.
@@ -923,6 +952,7 @@ def exception_hook(exc_type, exc_value, exc_traceback):
             None
     """
     logging.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
 
 sys.excepthook = exception_hook
 

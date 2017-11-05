@@ -86,9 +86,10 @@ def calibrateModelRecall(thisModel):
         None
     """
     if len(thisModel) > 1:
+        logging.info('calibrating multiple model')
         calibrateMultipleModelRecall(thisModel)
     elif hasattr(thisModel[0], 'allDataDict'):
-        logging.info('calibrating model')
+        logging.info('calibrating single model')
         calibrateSingleModelRecall(thisModel)
     else:
         logging.warning('no calibration')
@@ -120,7 +121,7 @@ def calibrateSingleModelRecall(thisModel):
                                                                                   optimise=thisModel[0].optimiseRecall,
                                                                                   calibrate=True)
     thisModel[0].classificationDict = dict()
-
+    thisModel[0].classificationDict['using_unknown'] = True
     if thisModel[0].useMaxDistance:
         [mk, vk, rk] = utils.meanVar_varianceDistribution(variancesKnown)
         [muk, vuk, ruk] = utils.meanVar_varianceDistribution(variancesUnknown)
@@ -167,10 +168,17 @@ def calibrateSingleModelRecall(thisModel):
     else:
         variancesKnownArray = np.asarray(variancesKnown)
         variancesUnknownArray = np.asarray(variancesUnknown)
-        varianceAllArray = np.vstack([variancesKnownArray, variancesUnknownArray])
+        logging.info(str(variancesUnknownArray.shape))
+        if variancesUnknownArray.shape[0] > 0:
+            thisModel[0].classificationDict['using_unknown'] = True
+            varianceAllArray = np.vstack([variancesKnownArray, variancesUnknownArray])
+        else:
+            thisModel[0].classificationDict['using_unknown'] = False
+            varianceAllArray = variancesKnownArray
         histKnown = [None] * (len(variancesKnownArray[0]) - 2)
         binEdges = [None] * (len(variancesKnownArray[0]) - 2)
         histUnknown = [None] * (len(variancesKnownArray[0]) - 2)
+        known_thresh = [None] * (len(variancesKnownArray[0]) - 2)
 
         thisModel[0].classificationDict['binWidth'] = thisModel[0].paramsDict['binWidth']
         thisModel[0].classificationDict['method'] = thisModel[0].paramsDict['method']
@@ -192,15 +200,22 @@ def calibrateSingleModelRecall(thisModel):
         bins = np.multiply(bins, mul_factor)
 
         for j in range(len(variancesKnown[0]) - 2):
+            logging.info(str(bins))
             histKnown[j], binEdges[j] = np.histogram(variancesKnownArray[:, j], bins=bins)
             histKnown[j] = 1.0 * histKnown[j] / np.sum(histKnown[j])
 
-            histUnknown[j], _ = np.histogram(variancesUnknownArray[:, j], bins=bins)
-            histUnknown[j] = 1.0 * histUnknown[j] / np.sum(histUnknown[j])
+            if thisModel[0].classificationDict['using_unknown']:
+                histUnknown[j], _ = np.histogram(variancesUnknownArray[:, j], bins=bins)
+                histUnknown[j] = 1.0 * histUnknown[j] / np.sum(histUnknown[j])
+            else:
+                known_thresh[j] = np.mean(histKnown[j])
 
         thisModel[0].classificationDict['histKnown'] = histKnown
         thisModel[0].classificationDict['binEdgesKnown'] = binEdges
-        thisModel[0].classificationDict['histUnknown'] = histUnknown
+        if thisModel[0].classificationDict['using_unknown']:
+            thisModel[0].classificationDict['histUnknown'] = histUnknown
+        else:
+            thisModel[0].classificationDict['known_thresh'] = known_thresh
     thisModel[0].calibrated = True
 
 
@@ -296,7 +311,7 @@ def calibrateMultipleModelRecall(thisModel):
         # If in the test phase we get a predict_proba which falls in the threshold i, then
         # model i is confident for this prediction.
         classif_thresh.append([tmp_i.mean() - tmp_s * tmp_i.std(), tmp_i.mean() + tmp_s * tmp_i.std()])
-
+    thisModel[0].classificationDict = dict()
     thisModel[0].classificationDict['classifiers'] = classifiers
     thisModel[0].classificationDict['classif_thresh'] = classif_thresh
     thisModel[0].calibrated = True
@@ -380,19 +395,22 @@ def singleRecall(thisModel, testInstance, verbose, visualiseInfo=None, optimise=
 
             probClass = vv[thisModel.classificationDict['bestDistanceIDX']]
         else:
+
             P_Known_given_X = utils.PfromHist(vv[:-2], thisModel.classificationDict['histKnown'],
                                               thisModel.classificationDict['binWidth'])
-            P_Unknown_given_X = utils.PfromHist(vv[:-2], thisModel.classificationDict['histUnknown'],
-                                                thisModel.classificationDict['binWidth'])
+            if thisModel.classificationDict['using_unknown']:
+                P_Unknown_given_X = utils.PfromHist(vv[:-2], thisModel.classificationDict['histUnknown'],
+                                                    thisModel.classificationDict['binWidth'])
+            else:
+                P_Unknown_given_X = thisModel.classificationDict['known_thresh']
 
             if thisModel.classificationDict['method'] == 'mulProb':
                 s1 = reduce(lambda x, y: x * y, P_Known_given_X)
                 s2 = reduce(lambda x, y: x * y, P_Unknown_given_X)
-                known = s1 > s2
             else:
                 s1 = np.sum(P_Known_given_X)
                 s2 = np.sum(P_Unknown_given_X)
-                known = s1 > s2
+            known = s1 > s2
 
             if known:
                 probClass = s1
@@ -683,7 +701,10 @@ def segmentTesting(thisModel, Ysample, Lnum, verbose, label, serialMode=False, o
         ret = []
         for j in range(len(Lsample)):
             logging.info(str(j) + '/' + str(len(Lsample)))
-            ret.append(testFunc(Ysample[j], Lsample[j]))
+            try:
+                ret.append(testFunc(Ysample[j], Lsample[j]))
+            except Exception as e:
+                logging.info(str(e))
     else:
         # parallel testing
         logging.info('Testing in parallel')

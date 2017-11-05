@@ -125,9 +125,7 @@ class SAMDriver:
 
     def testPerformance(self, testModel, Yall, Lall, YtestAll, LtestAll, verbose):
         """
-        Method for testing the whole dataset for overall performance. Returns a confusion matrix.
-
-        This implementation is a standard performance testing method that can be overridden by an inheriting child.
+        Custom testPerformance method. This augments the standard testPerformance method by including testing of known and unknown together with testing on known training points and known testing points.
 
         Args:
             testModel : SAMObject Model to be tested.
@@ -138,17 +136,24 @@ class SAMDriver:
             verbose : Boolean turning logging to stdout on or off.
 
         Returns:
-            Square numpy array confusion matrix.
+             Square numpy array confusion matrix.
         """
-        yTesting = SAMTesting.formatDataFunc(Yall)
-        [self.segTrainConf, self.segTrainPerc, labelsSegTrain, labelComparisonDict] = SAMTesting.testSegments(testModel, yTesting, Lall, verbose,
-                                                                            label='Training')
 
-        yTesting = SAMTesting.formatDataFunc(YtestAll)
-        [self.segTestConf, self.segTestPerc, labelsSegTest, labelComparisonDict] = SAMTesting.testSegments(testModel, yTesting, LtestAll, verbose,
-                                                                          label='Testing')
+        yTrainingData = SAMTesting.formatDataFunc(Yall)
+        [self.segTrainConf, self.segTrainPerc, labelsSegTrain, labelComparisonDict] = \
+            SAMTesting.testSegments(testModel, yTrainingData, Lall, verbose, 'Training')
 
-        return self.segTestConf, labelsSegTest, labelComparisonDict
+        yTrainingData = SAMTesting.formatDataFunc(YtestAll)
+        [self.segTestConf, self.segTestPerc, labelsSegTest, labelComparisonDict] = \
+            SAMTesting.testSegments(testModel, yTrainingData, LtestAll, verbose, 'Testing')
+
+        if self.calibrated:
+            yTrainingData = SAMTesting.formatDataFunc(self.allDataDict['Y'])
+            [self.seqTestConf, self.seqTestPerc, labelsSeqTest, _] = SAMTesting.testSegments(testModel, yTrainingData,
+                                                                           self.allDataDict['L'], verbose, 'All')
+            return self.seqTestConf, labelsSeqTest, labelComparisonDict
+        else:
+            return self.segTestConf, labelsSegTest, labelComparisonDict
 
     def training(self, modelNumInducing, modelNumIterations, modelInitIterations, fname, save_model, economy_save,
                  keepIfPresent=True, kernelStr=None):

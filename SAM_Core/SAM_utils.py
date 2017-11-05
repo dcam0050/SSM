@@ -27,7 +27,7 @@ np.set_printoptions(precision=2)
 ## \ingroup icubclient_SAM_source
 
 
-def initialiseModels(argv, update, initMode='training', drawLatent=False):
+def initialiseModels(argv, update, config=None, initMode='training', drawLatent=False):
     """Initialise SAM Model data structure, training parameters and user parameters.
 
         This method starts by initialising the required Driver from the driver name in argv[3] if it exists
@@ -90,8 +90,12 @@ def initialiseModels(argv, update, initMode='training', drawLatent=False):
     modeConfig = ''
     found = ''
     try:
-        parser = SafeConfigParser()
-        found = parser.read(dataPath + "/config.ini")
+        if config is None:
+            parser = SafeConfigParser()
+            found = parser.read(dataPath + "/config.ini")
+        else:
+            parser = config
+            logging.info("Using passed config file")
 
         if parser.has_option(trainName, 'update_mode'):
             modeConfig = parser.get(trainName, 'update_mode')
@@ -117,9 +121,13 @@ def initialiseModels(argv, update, initMode='training', drawLatent=False):
         logging.info('Loading training parameters from:' + str(dataPath) + "/config.ini")
         try:
             default = False
-            parser = SafeConfigParser()
-            parser.optionxform = str
-            found = parser.read(dataPath + "/config.ini")
+            if config is None:
+                parser = SafeConfigParser()
+                parser.optionxform = str
+                found = parser.read(dataPath + "/config.ini")
+            else:
+                parser = config
+                logging.info("Using passed config file")
 
             mySAMpy.experiment_number = 'exp'
 
@@ -181,6 +189,9 @@ def initialiseModels(argv, update, initMode='training', drawLatent=False):
 
             if parser.has_option(trainName, 'Quser'):
                 mySAMpy.Quser = int(parser.get(trainName, 'Quser'))
+                if mySAMpy.Quser < 2:
+                    logging.error("Minimum number for Quser is 2. Setting Quser to 2")
+                    mySAMpy.Quser = 2
             else:
                 default = True
                 mySAMpy.Quser = 2
@@ -209,9 +220,13 @@ def initialiseModels(argv, update, initMode='training', drawLatent=False):
     else:
         logging.info('Loading parameters from: \n \t' + str(modelPath))
         try:
-            parser = SafeConfigParser()
-            parser.optionxform = str
-            found = parser.read(dataPath + "/config.ini")
+            if config is None:
+                parser = SafeConfigParser()
+                parser.optionxform = str
+                found = parser.read(dataPath + "/config.ini")
+            else:
+                parser = config
+                logging.info("Using passed config file")
 
             # load parameters from config file
             mySAMpy.experiment_number = modelPath.split('__')[-1]
@@ -292,7 +307,7 @@ def initialiseModels(argv, update, initMode='training', drawLatent=False):
         mm[0].participantList = ['all']
     else:
         mm[0].participantList = ['root'] + mySAMpy.textLabels
-
+    logging.info("Labels : " + str(mm[0].participantList))
     for k in range(len(mm[0].participantList)):
         if mm[0].participantList[k] == 'all':
             normaliseData = True
@@ -304,9 +319,9 @@ def initialiseModels(argv, update, initMode='training', drawLatent=False):
             if k > 0:
                 mm.append(Driver())
                 # extract subset of data corresponding to this model
-                inds = [i for i in range(len(mm[0].Y['L'])) if mm[0].Y['L'][i] == k - 1]
+                inds = [i for i in range(len(mm[0].data_labels)) if mm[0].data_labels[i] == k - 1]
                 mm[k].Y = mm[0].Y['Y'][inds]
-                mm[k].L = mm[0].Y['L'][inds]
+                mm[k].L = mm[0].data_labels[inds]
                 mm[k].Quser = mm[0].Quser
                 mm[k].verbose = mm[0].verbose
                 logging.info('Object class: ' + str(mm[0].participantList[k]))
@@ -327,8 +342,7 @@ def initialiseModels(argv, update, initMode='training', drawLatent=False):
 
         if mm[0].model_mode != 'temporal':
 
-            [Yall, Lall, YtestAll, LtestAll] = mm[k].prepareData(mm[k].model_type, Ntr,
-                                                                 randSeed=0,
+            [Yall, Lall, YtestAll, LtestAll] = mm[k].prepareData(mm[k].model_type, Ntr, randSeed=0,
                                                                  normalise=normaliseData)
             mm[k].Yall = Yall
             mm[k].Lall = Lall
@@ -621,7 +635,11 @@ def PfromHist(sample, hist, binWidth):
     idx = idx.astype(np.int)
     pList = []
     for j in range(len(idx)):
-        pList.append(hist[j][idx[j]])
+        if idx[j] < len(hist[j]):
+            pList.append(hist[j][idx[j]])
+        else:
+            # Variance falls outside of histogram bins
+            pList.append(0)
     return pList
 
 
@@ -783,5 +801,16 @@ def transformTimeSeriesToSeq(Y, timeWindow, offset=1, normalised=False, reduced=
         if not noY:
             Ynew[i, :] = Y[base + timeWindow, :]
     return X, Ynew
+
+
+def random_data_split(Y, percentage=[0.5, 0.5]):
+    N = Y.shape[0]
+    N_1 = int(np.ceil(N*percentage[0]))
+    N_2 = int(np.floor(N*percentage[1]))
+    assert(N == N_1 + N_2)
+    perm = np.random.permutation(N)
+    inds_1 = perm[0:N_1]
+    inds_2 = perm[N_1:N_1+N_2]
+    return Y[inds_1, :], Y[inds_2, :], inds_1, inds_2
 
 ## @}
