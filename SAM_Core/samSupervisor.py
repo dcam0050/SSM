@@ -101,7 +101,7 @@ class SamSupervisorModule(yarp.RFModule):
 
     def configure(self, rf):
         """
-             Configure interactionSAMModel Yarp module.
+             Configure samSupervisor Yarp module.
 
             Args:
                 rf: Yarp RF context input.
@@ -557,13 +557,13 @@ class SamSupervisorModule(yarp.RFModule):
                 6) __dataDir <modelName>__  :   Returns the model filename that will be used for the specific <modelName>. Calls dataDirModel() \n
                 7) __delete <modelName>__   :   Deletes model from hard disk. Calls deleteModel() \n
                 8) __help__                 :   Returns a many formatted list of available commands \n
-                9) __load <modelName>__     :   Launches interactionSAMModel.py for the <modelName>. Calls loadModel() \n
-                10) __close <modelName>__    :   Terminates the interactionSAMModel.py process for the <modelName>. Calls closeModel() \n
+                9) __load <modelName>__     :   Launches interaction_yarp.py for the <modelName>. Calls loadModel() \n
+                10) __close <modelName>__    :   Terminates the interaction_yarp.py process for the <modelName>. Calls closeModel() \n
                 11) __optimise <modelName>__ :   Launches samOptimiser.py to optimise the training of the specified model. Calls optimise().\n
                 12) __quit__                 :   Closes all loaded models and stops samSupervisor.\n
                 13) __report <modelName> <plotFlag>__   :   Reports the confusion matrix of <modelName> if it is a trained model. Plot result if <plotFlag> is set to `plot`. Return a formatted confusion matrix if <plotFlag> is not `plot`. Calls reportModel()\n
                 14) __train <modelName>__    :   Launches trainSAMModel.py to train the specified model. Calls train() \n
-                15) __list_callSigns__       :   Returns a list of the `ask_X_label` and `ask_X_instance` call signs for all models that are currently loaded with interactionSAMModel.py\n
+                15) __list_callSigns__       :   Returns a list of the `ask_X_label` and `ask_X_instance` call signs for all models that are currently loaded with interaction_yarp.py\n
                 7) __ask_X_label__    :  Forwards the received ask label request to the corresponding loaded model if the callsign is present in __list_callsigns__. This command has an enforced timeout of 10 seconds to respond otherwise returns `nack`. \n
                 8) __ask_X_instance__ :  Forwards the received ask instance request to the corresponding loaded model if the callsign is present in __list_callsigns__. This command has an enforced timeout of 10 seconds to respond otherwise returns `nack`. \n
 
@@ -680,7 +680,7 @@ class SamSupervisorModule(yarp.RFModule):
         return True
 
     def listModels(self, reply, command):
-        """ Returns lists of models for train or interaction categpories.
+        """ Returns lists of models for train or interaction categories.
 
             Args:
                 command : Yarp bottle with command. Example valid commands below.
@@ -875,7 +875,7 @@ class SamSupervisorModule(yarp.RFModule):
         """ Load a trained model
 
             Description:
-                 Launches interactionSAMModel.py for the model mentioned in the command.
+                 Launches interaction_yarp.py for the model mentioned in the command.
 
             Args:
                 reply   : Yarp bottle for the reply from the function.
@@ -986,7 +986,7 @@ class SamSupervisorModule(yarp.RFModule):
 
                             args = ' '.join([join(self.dataPath, j[0]), join(self.modelPath, modToLoad),
                                              self.interactionConfFile, interactionFunction[0], str(self.windowed)])
-                            cmd = 'interactionSAMModel.py ' + args
+                            cmd = 'interaction_yarp.py ' + args
 
                             if self.verbose:
                                 logging.info('')
@@ -1727,7 +1727,7 @@ def exception_hook(exc_type, exc_value, exc_traceback):
     """Callback function to record any errors that occur in the log files.
 
         Documentation:
-            Substitutes the standard python exception_hook with one that records the error into a log file. Can only work if interactionSAMModel.py is called from python and not ipython because ipython overrides this substitution.
+            Substitutes the standard python exception_hook with one that records the error into a log file. Can only work if interaction_yarp.py is called from python and not ipython because ipython overrides this substitution.
         Args:
             exc_type: Exception Type.
             exc_value: Exception Value.

@@ -14,7 +14,6 @@ import numpy
 import os
 import cv2
 import readline
-import yarp
 from SAM.SAM_Core import SAMDriver
 from SAM.SAM_Core import SAMTesting
 import logging
@@ -48,16 +47,6 @@ class SAMDriver_interaction(SAMDriver):
         Returns:
             None
         """
-        if parser.has_option(trainName, 'imgH'):
-            self.paramsDict['imgH'] = int(parser.get(trainName, 'imgH'))
-        else:
-            self.paramsDict['imgH'] = 400
-
-        if parser.has_option(trainName, 'imgW'):
-            self.paramsDict['imgW'] = int(parser.get(trainName, 'imgW'))
-        else:
-            self.paramsDict['imgW'] = 400
-
         if parser.has_option(trainName, 'imgHNew'):
             self.paramsDict['imgHNew'] = int(parser.get(trainName, 'imgHNew'))
         else:
@@ -252,16 +241,9 @@ class SAMDriver_interaction(SAMDriver):
         logging.info('process live data')
         logging.info(len(dataList))
 
-        imgH = thisModel[0].paramsDict['imgH']
-        imgW = thisModel[0].paramsDict['imgW']
         imgHNew = thisModel[0].paramsDict['imgHNew']
         imgWNew = thisModel[0].paramsDict['imgWNew']
         numFaces = len(dataList)
-
-        imageArray = numpy.zeros((imgH, imgW, 3), dtype=numpy.uint8)
-        yarpImage = yarp.ImageRgb()
-        yarpImage.resize(imgH, imgW)
-        yarpImage.setExternal(imageArray, imageArray.shape[1], imageArray.shape[0])
 
         # images = numpy.zeros((numFaces, imgHNew * imgWNew), dtype=numpy.uint8)
         labels = [None]*numFaces
@@ -271,8 +253,7 @@ class SAMDriver_interaction(SAMDriver):
             # average all faces
             for i in range(numFaces):
                 logging.info('iterating' + str(i))
-                yarpImage.copy(dataList[i])
-                imageArrayOld = cv2.resize(imageArray, (imgHNew, imgWNew))
+                imageArrayOld = cv2.resize(dataList[i], (imgHNew, imgWNew))
                 imageArrayGray = cv2.cvtColor(imageArrayOld, cv2.COLOR_BGR2GRAY)
                 instance = imageArrayGray.flatten()[None, :]
                 logging.info(instance.shape)
@@ -291,13 +272,13 @@ class SAMDriver_interaction(SAMDriver):
 
     def formatGeneratedData(self, instance):
         """
-        Method to transform a generated instance from the model into a Yarp formatted output.
+        Method to transform a generated instance from the model into a formatted output.
 
         Args:
             instance: Feature vector returned during generation of a label.
 
         Returns:
-            Yarp formatted output for instance.
+            Formatted output for instance.
         """
         # normalise image between 0 and 1
         yMin = instance.min()
@@ -308,11 +289,5 @@ class SAMDriver_interaction(SAMDriver):
         instance = instance.astype(numpy.uint8)
         instance = numpy.reshape(instance, (self.paramsDict['imgHNew'], self.paramsDict['imgWNew']))
 
-        # convert image into yarp rgb image
-        yarpImage = yarp.ImageMono()
-        yarpImage.resize(self.paramsDict['imgHNew'], self.paramsDict['imgWNew'])
-        instance = instance.astype(numpy.uint8)
-        yarpImage.setExternal(instance, instance.shape[1], instance.shape[0])
-
-        return yarpImage
+        return instance
 

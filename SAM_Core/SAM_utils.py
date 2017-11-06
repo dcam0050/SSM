@@ -23,7 +23,7 @@ import logging
 np.set_printoptions(precision=2)
 
 ## \defgroup icubclient_SAM_utils SAM Utils
-## @{Utility class for functions required by both interactionSAMModel.py and trainSAMModel.py
+## @{Utility class for functions required by both interaction_yarp.py and trainSAMModel.py
 ## \ingroup icubclient_SAM_source
 
 
@@ -47,7 +47,7 @@ def initialiseModels(argv, update, config=None, initMode='training', drawLatent=
                      data becomes available.
             initMode: String having either a value of 'training' or 'interaction'. 'training' takes into consideration
                       the value of update in loading the parameters. (Used by trainSAMModel.py) 'interaction' loads
-                      the parameters directly from the model if the model exists. (Used by interactionSAMModel.py)
+                      the parameters directly from the model if the model exists. (Used by interaction_yarp.py)
 
         Returns:
             The output is a list of SAMDriver models. The list is of length 1 when the config file requests a single
@@ -801,6 +801,43 @@ def transformTimeSeriesToSeq(Y, timeWindow, offset=1, normalised=False, reduced=
         if not noY:
             Ynew[i, :] = Y[base + timeWindow, :]
     return X, Ynew
+
+
+def yarp_image_to_np(yarp_in_image, image_type):
+    try:
+        import yarp
+        imgH = yarp_in_image.height()
+        imgW = yarp_in_image.width()
+        if image_type == 'imagergb':
+            image_array = np.zeros((imgH, imgW, 3), dtype=np.uint8)
+            wrap_mat_image = yarp.ImageRgb()
+        elif image_type == 'imagemono':
+            image_array = np.zeros((imgH, imgW), dtype=np.uint8)
+            wrap_mat_image = yarp.ImageMono()
+        else:
+            raise Exception("Unknown data type encountered")
+        wrap_mat_image.resize(imgH, imgW)
+        wrap_mat_image.setExternal(image_array, image_array.shape[1], image_array.shape[0])
+        wrap_mat_image.copy(yarp_in_image)
+        return image_array
+    except ImportError:
+        raise Exception("Yarp not found")
+
+
+def np_to_yarp(np_image):
+    try:
+        import yarp
+        # convert image into yarp rgb image
+        if len(np_image.shape) < 3:
+            yarp_image = yarp.ImageMono()
+        else:
+            yarp_image = yarp.ImageRgb()
+        yarp_image.resize(np_image.shape[0], np_image.shape[1])
+        instance = np_image.astype(np.uint8)
+        yarp_image.setExternal(instance, instance.shape[1], instance.shape[0])
+        return yarp_image
+    except ImportError:
+        raise Exception("Yarp not found")
 
 
 def random_data_split(Y, percentage=[0.5, 0.5]):

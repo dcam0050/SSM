@@ -49,7 +49,7 @@ def exception_hook(exc_type, exc_value, exc_traceback):
     logging.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
 
 
-def trainSAMModel(argv, config=None):
+def trainSAMModel(argv, model_config=None):
 
     def save_model(testing=True):
         numParts = len(mm[0].participantList)
@@ -151,7 +151,7 @@ def trainSAMModel(argv, config=None):
 
     logging.info(loggerFName)
     try:
-        mm = initialiseModels(argv[1:4], argv[4], config)
+        mm = initialiseModels(argv[1:4], argv[4], model_config)
         # mm[0].SAMObject.visualise()
 
         if mm[0].calibrateUnknown or len(mm) > 1:
