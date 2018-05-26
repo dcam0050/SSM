@@ -4,5 +4,5 @@
 .idea/*
 SAM_Tests/mvcomand
 SAM_Tests/rmlogs.sh
-SAM_Tests/SAM_Data_Models
+SAM_Tests/SAM_Data_Models*
 SAM_Tests/.cache/

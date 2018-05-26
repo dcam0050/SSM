@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import matplotlib
-matplotlib.use("TkAgg")
+# matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import SAM
 import sys
@@ -893,6 +893,13 @@ class SamSupervisorModule(yarp.RFModule):
             reply.addString('nack')
             reply.addString("Cannot load model. Model training available but not yet trained.")
         elif command.get(1).asString() in self.uptodateModelsNames+self.updateModelsNames:
+            network_mode = "yarp"
+            if command.size() > 2:
+                network_mode = command.get(2).asString()
+                if network_mode.lower() not in ["yarp", "ros"]:
+                        logging.warning(str(network_mode) + "is not a supported network mode. Using yarp instead.")
+                        network_mode = "yarp"
+
             ret = parser.read(join(self.dataPath, command.get(1).asString(), "config.ini"))
             if len(ret) > 0:
                 # OLD
@@ -985,8 +992,10 @@ class SamSupervisorModule(yarp.RFModule):
                             logging.info(str(modType) + ' ' + str(modToLoad))
 
                             args = ' '.join([join(self.dataPath, j[0]), join(self.modelPath, modToLoad),
-                                             self.interactionConfFile, interactionFunction[0], str(self.windowed)])
-                            cmd = 'interaction_yarp.py ' + args
+                                             self.interactionConfFile, interactionFunction[0], str(self.windowed),
+                                             network_mode])
+                            # cmd = 'interaction_yarp.py ' + args
+                            cmd = 'interactionSAMModel.py ' + args
 
                             if self.verbose:
                                 logging.info('')
@@ -1002,7 +1011,8 @@ class SamSupervisorModule(yarp.RFModule):
                             else:
                                 c = subprocess.Popen([cmd], shell=True)
 
-                            self.rpcConnections.append([j[0], interfacePort, interfacePortName[:-1], callSignList, c, 'loading'])
+                            self.rpcConnections.append([j[0], interfacePort, interfacePortName[:-1], callSignList, c,
+                                                        network_mode, 'loading'])
                             # pause here
 
                             noConn = True

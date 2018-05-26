@@ -151,7 +151,7 @@ def trainSAMModel(argv, model_config=None):
 
     logging.info(loggerFName)
     try:
-        mm = initialiseModels(argv[1:4], argv[4], model_config)
+        mm = initialiseModels(argv[1:4], argv[4], model_config, drawLatent=True)
         # mm[0].SAMObject.visualise()
 
         if mm[0].calibrateUnknown or len(mm) > 1:

@@ -7,6 +7,7 @@
 ##
 from .SAMDriver_ARWin import *
 from .SAMDriver_interaction import *
+from .SAMDriver_Speech import *
 ## @}
 
 

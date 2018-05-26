@@ -7,7 +7,7 @@ import sys
 import time
 from ConfigParser import SafeConfigParser
 from SAM.SAM_Core import SAMDriver as Driver
-from SAM.SAM_Core.SAM_utils import initialiseModels, timeout, np_to_yarp, yarp_image_to_np
+from SAM.SAM_Core.SAM_utils import initialiseModels, timeout
 import readline
 import warnings
 import numpy as np
@@ -214,6 +214,8 @@ class interaction_yarp(yarp.RFModule):
             self.portsList = []
             for j in range(len(self.portNameList)):
                 if self.portNameList[j][0] == 'rpcbase':
+                    if self.portNameList[j][1][0] != '/':
+                        self.portNameList[j][1] = '/' + self.portNameList[j][1]
                     self.portsList.append(yarp.Port())
                     self.portsList[j].open(self.portNameList[j][1]+":i")
                     self.svPort = j
@@ -228,6 +230,8 @@ class interaction_yarp(yarp.RFModule):
                     self.portsList.append(yarp.BufferedPortImageRgb())
                     self.latentPort = j
                     ports = self.portNameList[j][1].split(',')
+                    if ports[0][0] != '/':
+                        ports[0] = '/' + ports[0]
                     self.portsList[j].open(ports[0])
                     yarp.Network.connect(ports[0], ports[1])
                 elif self.portNameList[j][0] == 'collectionmethod':
@@ -271,6 +275,9 @@ class interaction_yarp(yarp.RFModule):
                     # mrd models with label/instance training will always have:
                     # 1 an input data line which is used when a label is requested
                     # 2 an output data line which is used when a generated instance is required
+                    if parts[0][0] != '/':
+                        parts[0] = '/' + parts[0]
+
                     if parts[0][-1] == 'i':
                         self.labelPort = j
                         self.labelPortName = parts[0]

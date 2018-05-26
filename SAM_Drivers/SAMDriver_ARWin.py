@@ -379,8 +379,6 @@ class SAMDriver_ARWin(SAMDriver):
 
         return data2, jointsList, objectsList
 
-
-
     def readData(self, root_data_dir, participant_index, *args, **kw):
         """
             Method which accepts a data directory, reads all the data in and outputs self.Y which is a numpy array with n instances of m length feature vectors and self.L which is a list of text Labels of length n.

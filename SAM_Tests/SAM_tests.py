@@ -6,7 +6,6 @@ from ConfigParser import SafeConfigParser
 import itertools
 import collections
 import numpy as np
-import time
 
 yarpFound = True
 rosFound = True
@@ -36,8 +35,8 @@ def flatten_tuple(inp):
 
 # Train Model Function Parameters
 func_params_dict = collections.OrderedDict()
-func_params_dict['model'] = ["FacesTest"]
-func_params_dict['driver'] = ['SAMDriver_interaction']
+func_params_dict['model'] = ["FacesTest", "ActionsTest"]
+func_params_dict['driver'] = ['SAMDriver_interaction', 'SAMDriver_ARWin']
 func_params_dict['update_mode'] = ['new', "update"]
 func_params_dict['update_mode'] = [[x] for x in func_params_dict['update_mode']]
 model_driver_pairs = list(itertools.izip(func_params_dict['model'], func_params_dict['driver']))
@@ -55,14 +54,6 @@ for model in func_params_dict['model']:
     assert config_parser_dict[model].has_section(model)
     print config_parser_dict[model].items(model)
 
-sensory_dir = join(curr_dir, sensory_dir_ext, "sensory_level_conf.ini")
-print sensory_dir
-sensory_parser = SafeConfigParser()
-assert sensory_parser.read(sensory_dir)
-for model in func_params_dict['model']:
-    assert sensory_parser.has_section(model)
-    print sensory_parser.items(model)
-
 # Config file parameters
 comb_dict = collections.OrderedDict()
 comb_dict['model_type'] = ['mrd', 'bgplvm']
@@ -76,9 +67,36 @@ test_comb_parameters = list(itertools.product(*comb_dict.values()))
 test_comb_parameters = list(itertools.product(model_driver_pairs, [["new"]], test_comb_parameters))
 test_comb_parameters = [flatten_tuple(x) for x in test_comb_parameters]
 
-comb_keys = func_params_dict.keys() + comb_dict.keys()
-combs = func_params_combs+test_comb_parameters
-combs = combs[:2]
+sensory_dir = join(curr_dir, sensory_dir_ext, "sensory_level_conf.ini")
+print sensory_dir
+sensory_parser = SafeConfigParser()
+assert sensory_parser.read(sensory_dir)
+for model in func_params_dict['model']:
+    assert sensory_parser.has_section(model)
+    print sensory_parser.items(model)
+
+collectionMethod = collections.OrderedDict()
+collectionMethod['collectionMethod'] = ['buffered', 'future_buffered', 'continuous']
+collectionMethod['collectionMethod_buffer'] = ['0', '5']
+collectionMethod_parameters = list(itertools.product(*collectionMethod.values()))
+collectionMethod_parameters = [' '.join(j) for j in collectionMethod_parameters]
+
+sensory_dict = collections.OrderedDict()
+sensory_dict['collectionMethod'] = collectionMethod_parameters
+# sensory_dict['visualise'] = ['False']
+sensory_comb_parameters = [list(g) for g in list(itertools.product(*sensory_dict.values()))]
+sensory_comb_keys = sensory_dict.keys()
+sensory_key_offset = len(sensory_comb_keys)
+
+comb_keys = func_params_dict.keys() + comb_dict.keys() + ['sensedict_' + k for k in sensory_comb_keys]
+train_combs = func_params_combs+test_comb_parameters
+train_combs_sub = []
+train_combs_sub += (train_combs[:3])
+# train_combs_sub += (train_combs[51:52])
+train_combs = train_combs_sub
+combs = list(itertools.product(train_combs, sensory_comb_parameters))
+combs = [flatten_tuple(g) for g in combs]
+
 # 33 errors with 20 items per class 10 inducing 70 init 70 training
 # __ errors with 200 items per class 10 inducing 70 init 70 training
 # __ errors with 200 items per class 100 inducing 120 init 120 training
@@ -86,67 +104,135 @@ print '\n-----------------------------------------------------\n'
 print "Parameter Combinations\n"
 print len(combs), " tests"
 print comb_keys
-print '\n'.join([str(d) for d in combs])
+print '\n'.join(['\t'.join(d) for d in combs])
 print '\n-----------------------------------------------------\n'
 
+message_list = [['heartbeat', 'ack'],
+                # ['information', 'ack'],
+                # ['portNames', 'ack'],
+                ['reload', 'ack'],
+                ['toggleVerbose', 'ack'],
+                ['ask_X_label', 'ack'],
+                ['ask_X_instance', 'ack'],
+                ['EXIT', 'ack']]
 
-@pytest.mark.usefixtures("get_error_list")
-@pytest.mark.parametrize("params", combs)
-def test_complete_train_model(params, get_error_list):
-    error_list = get_error_list
-    for z, x in enumerate(params):
-        print comb_keys[z], " = ", x
-    model = params[comb_keys.index('model')]
-    driver = params[comb_keys.index('driver')]
-    update_mode = params[comb_keys.index('update_mode')]
+class permanent_values:
+    def __init__(self):
+        self.mod = None
+        self.this_model = None
+        self.model_config = None
+        self.train_args = None
+        self.interaction_args = None
+        self.val = None
+        self.error_list = []
+        self.do_train = True
+        self.old_params = ''
 
-    model_config = config_parser_dict[model]
-    if params[comb_keys.index('model_type')] is not 'None':
-        for j in range(comb_keys.index('model_type'), len(comb_keys)):
-            model_config.set(model, comb_keys[j], str(params[j]))
-        model_name = model + "__" + driver + "__" + comb_keys.index('model_type') + "__exp"
-    else:
-        model_name = model + "__" + driver + "__mrd__exp"
 
-    train_args = ["", join(curr_dir, data_dir_ext, model), join(curr_dir, model_dir_ext), driver, update_mode,
-                  model, False]
-    interaction_args = ["_", join(curr_dir, data_dir_ext, model), join(curr_dir, model_dir_ext, model_name),
-                        sensory_parser, driver, "False"]
+pv = permanent_values()
 
-    message_list = ['heartbeat', 'EXIT']
-    response_list = ['ack', 'ack']
 
-    try:
-        # Train model configuration
-        conf_matrix = SAM.SAM_Core.trainSAMModel(train_args, model_config=model_config)
-        assert conf_matrix is not False
+class TestEverything(object):
+    scenario_keys = ['params']
+    scenario_parameters = combs
 
-        # Extract results from conf matrix
-        np.fill_diagonal(conf_matrix, 0)
-        total_error = np.sum(conf_matrix)
-        print "Confusion Matrix", conf_matrix
-        print "Total training error:", total_error
-        error_list.append(total_error)
+    def test_param_setup(self, params):
+        if pv.old_params != params[:-sensory_key_offset]:
+            pv.old_params = params[:-sensory_key_offset]
+            pv.do_train = True
 
-        # Load interaction
-        mod = SAM.SAM_Core.interaction_yarp(interaction_args, model_config=model_config)
-        rf = yarp.ResourceFinder()
-        rf.setVerbose(True)
-        rf.configure([])
-        config_ret = mod.runModuleThreaded(rf)
-        assert config_ret == 0
+        pv.sense_conf = params[-sensory_key_offset:]
+        if pv.do_train:
+            for z, b in enumerate(params):
+                print comb_keys[z], ' = ', b
+            pv.this_model = params[comb_keys.index('model')]
+            pv.driver = params[comb_keys.index('driver')]
+            pv.update_mode = params[comb_keys.index('update_mode')]
 
-        for idx, msg in enumerate(message_list):
-            message = yarp.Bottle()
-            message.addString(msg)
-            respond = yarp.Bottle()
-            ret_bool = mod.safeRespond(message, respond)
-            assert ret_bool
-            assert respond.toString() == response_list[idx]
+            pv.model_config = config_parser_dict[pv.this_model]
+            if params[comb_keys.index('model_type')] is not 'None':
+                for m in range(comb_keys.index('model_type'), len(comb_keys)):
+                    pv.model_config.set(pv.this_model, comb_keys[m], str(params[m]))
+                pv.model_name = pv.this_model + "__" + pv.driver + "__" + comb_keys.index('model_type') + "__exp"
+            else:
+                pv.model_name = pv.this_model + "__" + pv.driver + "__mrd__exp"
 
-        mod.stopModule(wait=True)
-        del mod
-        print "check"
-    except Exception as e:
-        print e
-        assert False
+            pv.train_args = ["", join(curr_dir, data_dir_ext, pv.this_model), join(curr_dir, model_dir_ext),
+                               pv.driver, pv.update_mode, pv.this_model, False]
+
+            pv.interaction_args = ["_", join(curr_dir, data_dir_ext, pv.this_model),
+                                     join(curr_dir, model_dir_ext, pv.model_name), sensory_parser, pv.driver, "False"]
+
+            pv.mod = None
+            pv.ret_reply = []
+
+        assert True
+
+    def test_train_model(self, params):
+        try:
+            if pv.do_train:
+                # Train model configuration
+                conf_matrix = SAM.SAM_Core.trainSAMModel(pv.train_args, model_config=pv.model_config)
+                assert conf_matrix is not False
+
+                # Extract results from conf matrix
+                np.fill_diagonal(conf_matrix, 0)
+                total_error = np.sum(conf_matrix)
+                print "Confusion Matrix", conf_matrix
+                print "Total training error:", total_error
+                pv.error_list.append(total_error)
+                pv.do_train = False
+            else:
+                assert True
+        except Exception as e:
+            print e
+            assert False
+
+    def test_interaction_model_loading(self, params):
+        try:
+            for m in range(len(sensory_comb_keys)):
+                print sensory_parser.get(pv.this_model, sensory_comb_keys[m])
+                sensory_parser.set(pv.this_model, sensory_comb_keys[m], str(pv.sense_conf[m]))
+                print sensory_parser.get(pv.this_model, sensory_comb_keys[m])
+
+            pv.mod = SAM.SAM_Core.interaction_yarp(pv.interaction_args, model_config=pv.model_config)
+            rf = yarp.ResourceFinder()
+            rf.setVerbose(True)
+            rf.configure([])
+            config_ret = pv.mod.runModuleThreaded(rf)
+            if config_ret != 0:
+                pv.mod = None
+            assert config_ret == 0
+        except Exception as e:
+            print e
+            assert False
+
+    def test_interaction_model_respond(self, params):
+        try:
+            assert pv.mod is not None
+            respond_list = []
+            for msg in message_list:
+                if 'X' in msg[0]:
+                    subs = pv.this_model[:-5].lower()
+                    msg[0] = msg[0].replace('X', subs)
+
+                message = yarp.Bottle()
+                message.addString(msg[0])
+                respond = yarp.Bottle()
+                ret_bool = pv.mod.safeRespond(message, respond)
+                assert ret_bool
+                respond_list.append(respond.toString() == msg[1])
+            assert all(respond_list)
+        except Exception as e:
+            print e
+            assert False
+
+    def test_interaction_model_close(self, params):
+        try:
+            ret = pv.mod.stopModule(wait=True)
+            del pv.mod
+            pv.mod = None
+            assert pv.mod is None
+        except Exception as e:
+            print e
+            assert False

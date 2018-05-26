@@ -221,8 +221,8 @@ class SAMDriver_interaction(SAMDriver):
         self.Y = self.Y[train_list]
         self.L = [self.L[index] for index in train_list]
 
-        print self.allDataDict['Y'].shape, len(self.allDataDict['L'])
-        print self.Y.shape, len(self.L)
+        logging.info(str(self.allDataDict['Y'].shape) + " " + str(len(self.allDataDict['L'])))
+        logging.info(str(self.Y.shape) + " " + str(len(self.L)))
         return self.Y.shape[1]
 
     def processLiveData(self, dataList, thisModel, verbose, additionalData=dict(), visualiseInfo=None):
