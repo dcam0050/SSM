@@ -12,7 +12,7 @@
 # """"""""""""""""""""""""""""""""""""""""""""""
 from IPython.display import clear_output
 from sklearn.mixture import GMM
-from SAM_Core import SAM_utils as utils
+from SAM.SAM_Core import SAM_utils as utils
 import ipyparallel as ipp
 import time
 import matplotlib

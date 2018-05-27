@@ -1,0 +1,1 @@
+cd $cur && rm *.ppm && cp ~/user_files/SAM_Data_Models/Data/Faces/$cur/0000000* . && cp ~/user_files/SAM_Data_Models/Data/Faces/$cur/0000001* . && cd ..

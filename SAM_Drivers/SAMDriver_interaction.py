@@ -15,8 +15,8 @@ import os
 import cv2
 import readline
 import yarp
-from SAM_Core import SAMDriver
-from SAM_Core import SAMTesting
+from SAM.SAM_Core import SAMDriver
+from SAM.SAM_Core import SAMTesting
 import logging
 import copy
 

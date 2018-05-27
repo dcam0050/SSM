@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 import sys
 import time
 from ConfigParser import SafeConfigParser
-from SAM_Core import SAMDriver as Driver
-from SAM_Core.SAM_utils import initialiseModels, timeout
+from SAM.SAM_Core import SAMDriver as Driver
+from SAM.SAM_Core.SAM_utils import initialiseModels, timeout
 import readline
 import warnings
 import numpy as np

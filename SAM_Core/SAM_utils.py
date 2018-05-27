@@ -16,7 +16,7 @@ from ConfigParser import SafeConfigParser
 import pickle
 import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
-from SAM_Core import samOptimiser
+from SAM.SAM_Core import samOptimiser
 from os import listdir
 from os.path import join, isdir
 import threading

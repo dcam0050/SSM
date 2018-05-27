@@ -2,7 +2,7 @@
 
 import matplotlib
 matplotlib.use('TkAgg')
-
+import matplotlib.pylab as pb
 ## \defgroup icubclient_SAM_source SAM
 ##\brief@{
 ## Synthetic Autobiographical Memory for face recognition and action recognition
