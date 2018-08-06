@@ -1,10 +1,10 @@
-# SAM_Sheffield
+# SSM_Sheffield
 
 
 Authors: Uriel Martinez, Daniel Camilleri, Andreas Damianou, Luke Boorman
 email:   d.camilleri@sheffield.ac.uk
 
-A Synthetic Autobiographical Memory for the iCub robot. This module contains the core, which implements the high-level functionality, and the drivers which act as middleware between the perceptual system and the core.
+A Simple Synthetic Memory for the iCub robot. This module contains the core, which implements the high-level functionality, and the drivers which act as middleware between the perceptual system and the core.
 
 Pre-trained Action Recognition model and data can be downloaded [here](https://drive.google.com/open?id=0B6fkkRLTYjNLbjFFSEZtUmtHNk0).
 
@@ -98,14 +98,14 @@ Where `<model1Name>` and `<model2Name>` will be modelled as a single model while
 
 9. All **PORTS**, **RPCBASES**, and **CALLSIGNS** must be unique
 
-## Breakdown of contents in SAM folder:
+## Breakdown of contents in SSM folder:
 
 #### SAM_Core: 
 * Includes the base classes for SAM_Core and SAM_Driver
 * Includes samSupervisor.py, trainSAMModel.py, interactionSAMModel.py classes which are installed into ICUBCLIENT_DIR
 * Implements the core functionality of SAM. This module is the memory system where the already transformed (by SAM_Drivers) perceived signals are compressed and stored in a coherent way. Coherent meaning that audio, visual etc signals are treated in analogous manner. This model is built upon the deep Gaussian process model using GPy, so that high-dimensional, noisy data can be compressed, chunked and "cleaned" automatically in a probabilistic way (ie the model is trying to keep the "relevant" variance in the data and eliminate redundancies in the representation by encoding memories as "clean" and non-redundant signals).
 
-#### SAM_Drivers:
+#### SSM_Drivers:
 * This folder contains all developed drivers. 
 * These drivers are accessed via the generic trainModel and interactionModel classes which are called from samSupervisor
 * This module contains the implementation for transforming the raw perceptual signal into preprocessed signal. For example, in the biological brain, the visual cortex is hierarchically processing the visual stimuli before the signal is reaching the brain. In the current implementation, the drivers are doing this work, and currently we have implemented: Faces, Actions
